@@ -16,6 +16,10 @@ Then open `http://localhost:4173`.
 
 The prototype stores one profile and up to three months of check-ins on the current device. The payload is encrypted with AES-GCM using a key derived from the student's LRN passcode. There is no online database in this static build, and the app never sends profile or health-condition data to a server.
 
+## Welcome avatar
+
+The interactive doctor welcome avatar is rendered from the supplied Lottie JSON with a locally vendored, pinned copy of `lottie-web` 5.13.0. Both the animation and player are included in the service-worker cache for offline use. The player is MIT-licensed; its license text is stored in `dist/assets/lottie-web-license.md`.
+
 ## Reference
 
 BMI-for-age calculations use the 2007 WHO growth reference LMS values for ages 15–19. Results are educational screening indicators, not diagnoses or medical advice.

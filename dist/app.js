@@ -4,6 +4,7 @@ const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const ACCOUNT_KEY = "tsekap.encrypted-account.v1";
 const RETENTION_DAYS = 90;
+let welcomeAnimation = null;
 
 const CONDITIONS = [
   ["none", "No known health conditions"],
@@ -203,6 +204,8 @@ function greeting() {
 }
 
 function render() {
+  welcomeAnimation?.destroy();
+  welcomeAnimation = null;
   if (!state.payload) {
     if (state.route === "disclaimer") renderDisclaimer();
     else if (state.route === "onboarding") renderOnboarding();
@@ -214,6 +217,7 @@ function render() {
     renderShell((routes[state.route] || renderHome)(), state.route);
   }
   bindEvents();
+  if (!state.payload && !["disclaimer", "onboarding"].includes(state.route)) initWelcomeAvatar();
 }
 
 function renderWelcome() {
@@ -223,8 +227,20 @@ function renderWelcome() {
       <section class="auth-wrap" aria-label="TsekAP welcome">
         <div class="auth-story">
           <div class="auth-logo"><div class="brand-mark">${icon("heart", "icon icon-lg")}</div><div><strong>TsekAP</strong><span>Awareness &amp; Prevention</span></div></div>
-          <h1>Know your number.<br>Understand your health.</h1>
-          <p>A calm, private space for senior high school students to record measurements, understand BMI-for-age, and build healthier everyday habits.</p>
+          <div class="welcome-hero">
+            <div class="welcome-copy">
+              <h1>Know your number.<br>Understand your health.</h1>
+              <p>A calm, private space for senior high school students to record measurements, understand BMI-for-age, and build healthier everyday habits.</p>
+            </div>
+            <button class="welcome-avatar" id="welcome-avatar" type="button" aria-label="Replay the doctor’s welcome animation" aria-describedby="avatar-description">
+              <span class="avatar-stage">
+                <span class="welcome-lottie" id="welcome-lottie" aria-hidden="true"></span>
+                <img class="avatar-fallback" src="./assets/icon.svg" alt="">
+                <span class="avatar-caption">Tap to say hello again</span>
+              </span>
+              <span class="sr-only" id="avatar-description">An animated doctor welcomes you to TsekAP.</span>
+            </button>
+          </div>
           <div class="story-strip">
             <div class="story-item"><strong>WHO reference</strong><span>Age- and sex-specific screening for adolescents.</span></div>
             <div class="story-item"><strong>Private by design</strong><span>Encrypted records stay on this device.</span></div>
@@ -255,6 +271,42 @@ function renderWelcome() {
         </div>
       </section>
     </main>`;
+}
+
+function initWelcomeAvatar() {
+  const button = document.querySelector("#welcome-avatar");
+  const container = document.querySelector("#welcome-lottie");
+  if (!button || !container || !window.lottie) return;
+
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  welcomeAnimation = window.lottie.loadAnimation({
+    container,
+    renderer: "svg",
+    loop: false,
+    autoplay: !reduceMotion,
+    path: "./assets/doctor-welcome.json",
+    rendererSettings: { preserveAspectRatio: "xMidYMid meet", progressiveLoad: true }
+  });
+
+  welcomeAnimation.addEventListener("DOMLoaded", () => {
+    button.classList.add("is-loaded");
+    if (reduceMotion) welcomeAnimation.goToAndStop(96, true);
+  });
+  welcomeAnimation.addEventListener("data_failed", () => button.classList.add("has-fallback"));
+
+  button.addEventListener("click", () => welcomeAnimation?.goToAndPlay(0, true));
+  button.addEventListener("pointermove", (event) => {
+    if (reduceMotion) return;
+    const bounds = button.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / bounds.width - .5) * 4;
+    const y = ((event.clientY - bounds.top) / bounds.height - .5) * -4;
+    button.style.setProperty("--avatar-x", `${x.toFixed(2)}deg`);
+    button.style.setProperty("--avatar-y", `${y.toFixed(2)}deg`);
+  });
+  button.addEventListener("pointerleave", () => {
+    button.style.setProperty("--avatar-x", "0deg");
+    button.style.setProperty("--avatar-y", "0deg");
+  });
 }
 
 function renderDisclaimer() {

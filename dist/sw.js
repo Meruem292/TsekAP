@@ -1,11 +1,13 @@
-const CACHE = "tsekap-v2";
+const CACHE = "tsekap-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./manifest.webmanifest",
-  "./assets/icon.svg"
+  "./assets/icon.svg",
+  "./assets/lottie.min.js",
+  "./assets/doctor-welcome.json"
 ];
 
 self.addEventListener("install", (event) => {
