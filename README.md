@@ -24,6 +24,10 @@ The interactive doctor welcome avatar is rendered from the supplied Lottie JSON 
 
 Page entrances, text reveals, scroll-triggered card transitions, metric/chart drawing, and interactive zoom feedback use locally vendored GSAP 3.15.0 with ScrollTrigger. The scripts are cached by the service worker so the motion system remains available offline. Motion automatically simplifies when the device requests reduced motion.
 
+## Brand assets
+
+The official TsekAP logo is stored as `dist/assets/tsekap-logo-transparent.png`. It uses a genuine transparent background and supplies the app brand mark, favicon, Apple touch icon, and PWA icon. The interface primary color is matched to the logo’s teal-blue palette.
+
 ## Reference
 
 BMI-for-age calculations use the 2007 WHO growth reference LMS values for ages 15–19. Results are educational screening indicators, not diagnoses or medical advice.

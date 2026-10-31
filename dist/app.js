@@ -255,20 +255,24 @@ function initMotion() {
     const title = document.querySelector(".welcome-copy h1, .page-title, .form-card h1, .disclaimer-hero h1, .auth-panel h2");
     const words = wrapMotionWords(title);
     const intro = gsap.timeline({ defaults: { ease: "power3.out" } });
+    const introFromTo = (selector, from, to, position) => {
+      const targets = gsap.utils.toArray(selector);
+      if (targets.length) intro.fromTo(targets, from, to, position);
+    };
     if (words.length) intro.fromTo(words, { yPercent: 112, rotate: 1.5 }, { yPercent: 0, rotate: 0, duration: .72, stagger: .045 });
-    intro.fromTo(
+    introFromTo(
       ".eyebrow, .page-subtitle, .welcome-copy p, .auth-panel > p, .form-card .lead, .disclaimer-hero p",
       { autoAlpha: 0, y: 12 },
       { autoAlpha: 1, y: 0, duration: .48, stagger: .06 },
       words.length ? "-=.48" : 0
     );
-    intro.fromTo(
+    introFromTo(
       ".page-header .button, .auth-tabs, .auth-form, .privacy-note, .avatar-stage",
       { autoAlpha: 0, y: 16, scale: .985 },
       { autoAlpha: 1, y: 0, scale: 1, duration: .55, stagger: .06 },
       "-=.32"
     );
-    intro.fromTo(".auth-logo, .story-item", { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: .5, stagger: .07 }, "-=.42");
+    introFromTo(".auth-logo, .story-item", { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: .5, stagger: .07 }, "-=.42");
 
     const revealTargets = gsap.utils.toArray(".page .card, .history-row, .disclaimer-card, .form-card");
     if (ScrollTrigger && revealTargets.length) {
@@ -300,11 +304,14 @@ function initMotion() {
         const length = path.getTotalLength();
         gsap.fromTo(path, { strokeDasharray: length, strokeDashoffset: length }, { strokeDashoffset: 0, duration: 1.1, delay: .2, ease: "power2.inOut" });
       }
-      gsap.from(chart.querySelectorAll("circle, text"), { autoAlpha: 0, scale: .6, duration: .35, stagger: .045, delay: .72, ease: "back.out(1.6)" });
+      const points = chart.querySelectorAll("circle, text");
+      if (points.length) gsap.from(points, { autoAlpha: 0, scale: .6, duration: .35, stagger: .045, delay: .72, ease: "back.out(1.6)" });
     });
 
-    gsap.fromTo(".range-marker", { autoAlpha: 0 }, { autoAlpha: 1, duration: .6, delay: .55, ease: "power2.out" });
-    gsap.from(".rings", { rotate: -90, scale: .72, autoAlpha: 0, duration: .8, delay: .2, ease: "back.out(1.5)" });
+    const rangeMarker = document.querySelector(".range-marker");
+    if (rangeMarker) gsap.fromTo(rangeMarker, { autoAlpha: 0 }, { autoAlpha: 1, duration: .6, delay: .55, ease: "power2.out" });
+    const rings = document.querySelector(".rings");
+    if (rings) gsap.from(rings, { rotate: -90, scale: .72, autoAlpha: 0, duration: .8, delay: .2, ease: "back.out(1.5)" });
 
     const zoomTargets = document.querySelectorAll(".result-card, .article-card, .history-row, .education-card, .tip, .reference-link, .data-row, .value-row");
     zoomTargets.forEach((element) => {
@@ -364,7 +371,7 @@ function renderWelcome() {
     <main class="auth-page" id="main-content">
       <section class="auth-wrap" aria-label="TsekAP welcome">
         <div class="auth-story">
-          <div class="auth-logo"><div class="brand-mark">${icon("heart", "icon icon-lg")}</div><div><strong>TsekAP</strong><span>Awareness &amp; Prevention</span></div></div>
+          <div class="auth-logo"><div class="brand-mark"><img class="brand-logo" src="./assets/tsekap-logo-transparent.png" alt=""></div><div><strong>TsekAP</strong><span>Awareness &amp; Prevention</span></div></div>
           <div class="welcome-hero">
             <div class="welcome-copy">
               <h1>Know your number.<br>Understand your health.</h1>
@@ -373,7 +380,7 @@ function renderWelcome() {
             <button class="welcome-avatar" id="welcome-avatar" type="button" aria-label="Replay the doctor’s welcome animation" aria-describedby="avatar-description">
               <span class="avatar-stage">
                 <span class="welcome-lottie" id="welcome-lottie" aria-hidden="true"></span>
-                <img class="avatar-fallback" src="./assets/icon.svg" alt="">
+                <img class="avatar-fallback" src="./assets/tsekap-logo-transparent.png" alt="">
                 <span class="avatar-caption">Tap to say hello again</span>
               </span>
               <span class="sr-only" id="avatar-description">An animated doctor welcomes you to TsekAP.</span>
@@ -519,7 +526,7 @@ function renderShell(content, active) {
   app.innerHTML = `
     <div class="app-shell">
       <aside class="sidebar" aria-label="Primary navigation">
-        <div class="brand"><div class="brand-mark">${icon("heart", "icon icon-lg")}</div><div class="brand-copy"><strong>TsekAP</strong><span>Awareness &amp; Prevention</span></div></div>
+        <div class="brand"><div class="brand-mark"><img class="brand-logo" src="./assets/tsekap-logo-transparent.png" alt=""></div><div class="brand-copy"><strong>TsekAP</strong><span>Awareness &amp; Prevention</span></div></div>
         <nav class="nav-list">${nav}</nav>
         <div class="sidebar-footer">
           <div class="profile-chip"><div class="avatar">${esc(firstName().slice(0,1).toUpperCase())}</div><div class="profile-meta"><strong>${esc(firstName())}</strong><span>${state.demo ? "Illustrative demo" : "SHS Student"}</span></div></div>
@@ -527,7 +534,7 @@ function renderShell(content, active) {
           <div class="connection"><span class="status-dot ${online ? "" : "offline"}"></span><span>${online ? "Online" : "Offline — local mode"}</span></div>
         </div>
       </aside>
-      <header class="mobile-bar"><div class="mobile-brand"><div class="brand-mark">${icon("heart")}</div>TsekAP</div><button class="menu-button" id="menu-button" aria-label="Open menu" aria-expanded="${state.menuOpen}">${icon(state.menuOpen ? "x" : "menu")}</button></header>
+      <header class="mobile-bar"><div class="mobile-brand"><div class="brand-mark"><img class="brand-logo" src="./assets/tsekap-logo-transparent.png" alt=""></div>TsekAP</div><button class="menu-button" id="menu-button" aria-label="Open menu" aria-expanded="${state.menuOpen}">${icon(state.menuOpen ? "x" : "menu")}</button></header>
       <div class="mobile-menu" id="mobile-menu" ${state.menuOpen ? "" : "hidden"}>${nav}<button class="logout-button" type="button" data-action="logout">${icon("logout")}<span>Log out</span></button><div class="connection" style="padding:12px 14px"><span class="status-dot ${online ? "" : "offline"}"></span><span>${online ? "Online" : "Offline — local mode"}</span></div></div>
       <div class="scroll-progress" aria-hidden="true"><span></span></div>
       <main class="content" id="main-content"><div class="page">${content}</div></main>
@@ -589,8 +596,8 @@ function renderChart(records) {
   const path = points.map((p,i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ");
   return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="BMI history chart">
     <line x1="${padX}" y1="${height-padBottom}" x2="${width-padX}" y2="${height-padBottom}" stroke="#dbe5ef"/>
-    <path d="${path}" fill="none" stroke="#0a84ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-    ${points.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="5" fill="#0a84ff"/><text x="${p.x}" y="${p.y-11}" text-anchor="middle" font-weight="700">${p.record.bmi.toFixed(1)}</text><text x="${p.x}" y="${height-8}" text-anchor="middle">${formatDate(p.record.date,"short")}</text>`).join("")}
+    <path d="${path}" fill="none" stroke="#087fa8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    ${points.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="5" fill="#087fa8"/><text x="${p.x}" y="${p.y-11}" text-anchor="middle" font-weight="700">${p.record.bmi.toFixed(1)}</text><text x="${p.x}" y="${height-8}" text-anchor="middle">${formatDate(p.record.date,"short")}</text>`).join("")}
   </svg>`;
 }
 

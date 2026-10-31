@@ -1,11 +1,11 @@
-const CACHE = "tsekap-v5";
+const CACHE = "tsekap-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./manifest.webmanifest",
-  "./assets/icon.svg",
+  "./assets/tsekap-logo-transparent.png",
   "./assets/lottie.min.js",
   "./assets/gsap.min.js",
   "./assets/ScrollTrigger.min.js",
