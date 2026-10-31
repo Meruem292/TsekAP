@@ -1,4 +1,6 @@
 tmp/
 output/
 outputs/
+.vercel/
 .DS_Store
+.env*
