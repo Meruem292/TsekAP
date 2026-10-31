@@ -20,6 +20,10 @@ The prototype stores one profile and up to three months of check-ins on the curr
 
 The interactive doctor welcome avatar is rendered from the supplied Lottie JSON with a locally vendored, pinned copy of `lottie-web` 5.13.0. Both the animation and player are included in the service-worker cache for offline use. The player is MIT-licensed; its license text is stored in `dist/assets/lottie-web-license.md`.
 
+## Motion system
+
+Page entrances, text reveals, scroll-triggered card transitions, metric/chart drawing, and interactive zoom feedback use locally vendored GSAP 3.15.0 with ScrollTrigger. The scripts are cached by the service worker so the motion system remains available offline. Motion automatically simplifies when the device requests reduced motion.
+
 ## Reference
 
 BMI-for-age calculations use the 2007 WHO growth reference LMS values for ages 15–19. Results are educational screening indicators, not diagnoses or medical advice.

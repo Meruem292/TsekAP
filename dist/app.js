@@ -5,6 +5,8 @@ const toastRegion = document.querySelector("#toast-region");
 const ACCOUNT_KEY = "tsekap.encrypted-account.v1";
 const RETENTION_DAYS = 90;
 let welcomeAnimation = null;
+let motionContext = null;
+let routeTransitioning = false;
 
 const CONDITIONS = [
   ["none", "No known health conditions"],
@@ -159,7 +161,13 @@ function showToast(message, kind = "info") {
   toast.className = "toast";
   toast.innerHTML = `${icon(kind === "success" ? "check" : kind === "warning" ? "info" : "shield", "icon icon-sm")}<span>${esc(message)}</span>`;
   toastRegion.append(toast);
-  setTimeout(() => toast.remove(), 4200);
+  if (window.gsap && !prefersReducedMotion()) {
+    window.gsap.fromTo(toast, { autoAlpha: 0, y: 14, scale: .98 }, { autoAlpha: 1, y: 0, scale: 1, duration: .36, ease: "power3.out" });
+  }
+  setTimeout(() => {
+    if (window.gsap && !prefersReducedMotion()) window.gsap.to(toast, { autoAlpha: 0, y: 8, duration: .22, onComplete: () => toast.remove() });
+    else toast.remove();
+  }, 4000);
 }
 
 function completedAgeMonths(dob, onDate = new Date()) {
@@ -203,7 +211,136 @@ function greeting() {
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
 
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function wrapMotionWords(element) {
+  if (!element || element.dataset.motionSplit) return [];
+  const label = element.textContent.trim().replace(/\s+/g, " ");
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  textNodes.forEach((node) => {
+    const fragment = document.createDocumentFragment();
+    node.textContent.split(/(\s+)/).forEach((part) => {
+      if (!part) return;
+      if (/^\s+$/.test(part)) {
+        fragment.append(document.createTextNode(part));
+        return;
+      }
+      const clip = document.createElement("span");
+      clip.className = "motion-word-clip";
+      clip.setAttribute("aria-hidden", "true");
+      const word = document.createElement("span");
+      word.className = "motion-word";
+      word.textContent = part;
+      clip.append(word);
+      fragment.append(clip);
+    });
+    node.replaceWith(fragment);
+  });
+  element.dataset.motionSplit = "true";
+  if (label) element.setAttribute("aria-label", label);
+  return [...element.querySelectorAll(".motion-word")];
+}
+
+function initMotion() {
+  const gsap = window.gsap;
+  if (!gsap || prefersReducedMotion()) return;
+  const ScrollTrigger = window.ScrollTrigger;
+  if (ScrollTrigger) gsap.registerPlugin(ScrollTrigger);
+
+  motionContext = gsap.context(() => {
+    const title = document.querySelector(".welcome-copy h1, .page-title, .form-card h1, .disclaimer-hero h1, .auth-panel h2");
+    const words = wrapMotionWords(title);
+    const intro = gsap.timeline({ defaults: { ease: "power3.out" } });
+    if (words.length) intro.fromTo(words, { yPercent: 112, rotate: 1.5 }, { yPercent: 0, rotate: 0, duration: .72, stagger: .045 });
+    intro.fromTo(
+      ".eyebrow, .page-subtitle, .welcome-copy p, .auth-panel > p, .form-card .lead, .disclaimer-hero p",
+      { autoAlpha: 0, y: 12 },
+      { autoAlpha: 1, y: 0, duration: .48, stagger: .06 },
+      words.length ? "-=.48" : 0
+    );
+    intro.fromTo(
+      ".page-header .button, .auth-tabs, .auth-form, .privacy-note, .avatar-stage",
+      { autoAlpha: 0, y: 16, scale: .985 },
+      { autoAlpha: 1, y: 0, scale: 1, duration: .55, stagger: .06 },
+      "-=.32"
+    );
+    intro.fromTo(".auth-logo, .story-item", { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: .5, stagger: .07 }, "-=.42");
+
+    const revealTargets = gsap.utils.toArray(".page .card, .history-row, .disclaimer-card, .form-card");
+    if (ScrollTrigger && revealTargets.length) {
+      ScrollTrigger.batch(revealTargets, {
+        start: "top 92%",
+        once: true,
+        onEnter: (batch) => gsap.fromTo(batch, { autoAlpha: 0, y: 30, scale: .988 }, { autoAlpha: 1, y: 0, scale: 1, duration: .68, stagger: .08, ease: "power3.out", clearProps: "transform" })
+      });
+    } else if (revealTargets.length) {
+      gsap.from(revealTargets, { autoAlpha: 0, y: 24, duration: .6, stagger: .07, ease: "power3.out" });
+    }
+
+    [".data-row", ".tip", ".value-row", ".settings-row", ".disclaimer-points li"].forEach((selector) => {
+      const elements = gsap.utils.toArray(selector);
+      if (!elements.length) return;
+      gsap.from(elements, { autoAlpha: 0, x: -12, duration: .45, stagger: .065, delay: .18, ease: "power2.out" });
+    });
+
+    const metric = document.querySelector(".metric-value");
+    if (metric) {
+      const finalValue = Number(metric.textContent);
+      const counter = { value: 0 };
+      gsap.to(counter, { value: finalValue, duration: 1.05, delay: .18, ease: "power3.out", onUpdate: () => { metric.textContent = counter.value.toFixed(1); } });
+    }
+
+    document.querySelectorAll(".chart").forEach((chart) => {
+      const path = chart.querySelector("path");
+      if (path) {
+        const length = path.getTotalLength();
+        gsap.fromTo(path, { strokeDasharray: length, strokeDashoffset: length }, { strokeDashoffset: 0, duration: 1.1, delay: .2, ease: "power2.inOut" });
+      }
+      gsap.from(chart.querySelectorAll("circle, text"), { autoAlpha: 0, scale: .6, duration: .35, stagger: .045, delay: .72, ease: "back.out(1.6)" });
+    });
+
+    gsap.fromTo(".range-marker", { autoAlpha: 0 }, { autoAlpha: 1, duration: .6, delay: .55, ease: "power2.out" });
+    gsap.from(".rings", { rotate: -90, scale: .72, autoAlpha: 0, duration: .8, delay: .2, ease: "back.out(1.5)" });
+
+    const zoomTargets = document.querySelectorAll(".result-card, .article-card, .history-row, .education-card, .tip, .reference-link, .data-row, .value-row");
+    zoomTargets.forEach((element) => {
+      element.classList.add("zoom-surface");
+      element.addEventListener("pointerenter", () => gsap.to(element, { y: -3, scale: 1.012, duration: .24, ease: "power2.out", overwrite: "auto" }));
+      element.addEventListener("pointerleave", () => gsap.to(element, { y: 0, scale: 1, duration: .3, ease: "power2.out", overwrite: "auto" }));
+    });
+
+    const progress = document.querySelector(".scroll-progress span");
+    if (progress && ScrollTrigger) {
+      ScrollTrigger.create({ start: 0, end: () => ScrollTrigger.maxScroll(window), onUpdate: (self) => gsap.set(progress, { scaleX: self.progress }) });
+    }
+  }, app);
+}
+
+function navigateTo(route) {
+  if (routeTransitioning) return;
+  const finish = () => {
+    state.route = route;
+    state.menuOpen = false;
+    routeTransitioning = false;
+    render();
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  };
+  const surface = document.querySelector(".page");
+  if (!window.gsap || prefersReducedMotion() || !surface) {
+    finish();
+    return;
+  }
+  routeTransitioning = true;
+  window.gsap.to(surface, { autoAlpha: 0, y: -10, duration: .18, ease: "power2.in", onComplete: finish });
+}
+
 function render() {
+  motionContext?.revert();
+  motionContext = null;
   welcomeAnimation?.destroy();
   welcomeAnimation = null;
   if (!state.payload) {
@@ -218,6 +355,7 @@ function render() {
   }
   bindEvents();
   if (!state.payload && !["disclaimer", "onboarding"].includes(state.route)) initWelcomeAvatar();
+  initMotion();
 }
 
 function renderWelcome() {
@@ -390,6 +528,7 @@ function renderShell(content, active) {
       </aside>
       <header class="mobile-bar"><div class="mobile-brand"><div class="brand-mark">${icon("heart")}</div>TsekAP</div><button class="menu-button" id="menu-button" aria-label="Open menu" aria-expanded="${state.menuOpen}">${icon(state.menuOpen ? "x" : "menu")}</button></header>
       <div class="mobile-menu" id="mobile-menu" ${state.menuOpen ? "" : "hidden"}>${nav}<div class="connection" style="padding:12px 14px"><span class="status-dot ${online ? "" : "offline"}"></span><span>${online ? "Online" : "Offline — local mode"}</span></div></div>
+      <div class="scroll-progress" aria-hidden="true"><span></span></div>
       <main class="content" id="main-content"><div class="page">${content}</div></main>
     </div>`;
 }
@@ -509,10 +648,7 @@ function loadDemo() {
 
 function bindEvents() {
   document.querySelectorAll("[data-route]").forEach((button) => button.addEventListener("click", () => {
-    state.route = button.dataset.route;
-    state.menuOpen = false;
-    render();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    navigateTo(button.dataset.route);
   }));
 
   document.querySelectorAll("[data-auth-tab]").forEach((button) => button.addEventListener("click", () => {
