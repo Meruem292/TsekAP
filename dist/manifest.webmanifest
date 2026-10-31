@@ -1,0 +1,19 @@
+{
+  "name": "TsekAP — Awareness & Prevention",
+  "short_name": "TsekAP",
+  "description": "An educational student BMI-for-age awareness and monitoring tool.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#f4f7fb",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
