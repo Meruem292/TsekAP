@@ -1,4 +1,4 @@
-const CACHE = "tsekap-v4";
+const CACHE = "tsekap-v5";
 const APP_SHELL = [
   "./",
   "./index.html",

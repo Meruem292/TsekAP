@@ -523,11 +523,12 @@ function renderShell(content, active) {
         <nav class="nav-list">${nav}</nav>
         <div class="sidebar-footer">
           <div class="profile-chip"><div class="avatar">${esc(firstName().slice(0,1).toUpperCase())}</div><div class="profile-meta"><strong>${esc(firstName())}</strong><span>${state.demo ? "Illustrative demo" : "SHS Student"}</span></div></div>
+          <button class="logout-button" type="button" data-action="logout">${icon("logout")}<span>Log out</span></button>
           <div class="connection"><span class="status-dot ${online ? "" : "offline"}"></span><span>${online ? "Online" : "Offline — local mode"}</span></div>
         </div>
       </aside>
       <header class="mobile-bar"><div class="mobile-brand"><div class="brand-mark">${icon("heart")}</div>TsekAP</div><button class="menu-button" id="menu-button" aria-label="Open menu" aria-expanded="${state.menuOpen}">${icon(state.menuOpen ? "x" : "menu")}</button></header>
-      <div class="mobile-menu" id="mobile-menu" ${state.menuOpen ? "" : "hidden"}>${nav}<div class="connection" style="padding:12px 14px"><span class="status-dot ${online ? "" : "offline"}"></span><span>${online ? "Online" : "Offline — local mode"}</span></div></div>
+      <div class="mobile-menu" id="mobile-menu" ${state.menuOpen ? "" : "hidden"}>${nav}<button class="logout-button" type="button" data-action="logout">${icon("logout")}<span>Log out</span></button><div class="connection" style="padding:12px 14px"><span class="status-dot ${online ? "" : "offline"}"></span><span>${online ? "Online" : "Offline — local mode"}</span></div></div>
       <div class="scroll-progress" aria-hidden="true"><span></span></div>
       <main class="content" id="main-content"><div class="page">${content}</div></main>
     </div>`;
@@ -617,7 +618,7 @@ function renderLearn() {
 function renderAbout() {
   return `<header class="page-header"><div><span class="eyebrow">About the project</span><h1 class="page-title">Awareness before assumptions</h1><p class="page-subtitle">TsekAP turns a measurement into clear, careful, student-friendly education.</p></div></header>
     <div class="about-hero"><section class="card about-copy"><h2 class="section-title">What TsekAP means</h2><p><strong>TsekAP</strong> is a student health awareness and prevention capstone project. Its goal is to help senior high school students record measured height and weight, understand an age-appropriate BMI screening result, and receive general wellness reminders.</p><p>The app intentionally avoids diagnosis. Its calculations use the official WHO 2007 BMI-for-age LMS reference included in the app for offline use.</p><div class="notice">${icon("shield", "icon icon-sm")}<span>This static prototype keeps data locally. It does not provide a school database, clinician portal, or online account sync.</span></div></section><aside class="card about-values"><div class="value-row"><div class="value-icon">${icon("check")}</div><div><strong>Accurate reference</strong><span>Sex- and age-specific WHO data.</span></div></div><div class="value-row"><div class="value-icon">${icon("book")}</div><div><strong>Educational language</strong><span>Clear explanations and careful limitations.</span></div></div><div class="value-row"><div class="value-icon">${icon("wifi")}</div><div><strong>Offline-capable</strong><span>Core screens and calculations are cached.</span></div></div><div class="value-row"><div class="value-icon">${icon("lock")}</div><div><strong>Private on device</strong><span>Encrypted local profile and check-ins.</span></div></div></aside></div>
-    <section class="card settings-card"><h2 class="section-title">Data &amp; session</h2><div class="settings-row"><div><strong>Export a local copy</strong><p>Download the currently unlocked profile and records as JSON.</p></div><button class="button secondary" id="export-data">${icon("download", "icon icon-sm")} Export</button></div><div class="settings-row"><div><strong>Lock this profile</strong><p>Return to the passcode screen without deleting data.</p></div><button class="button secondary" id="lock-profile">${icon("logout", "icon icon-sm")} Lock</button></div>${state.demo ? "" : `<div class="settings-row"><div><strong>Delete local profile</strong><p>Permanently remove the encrypted profile and all records from this browser.</p></div><button class="button danger" id="delete-profile">${icon("trash", "icon icon-sm")} Delete</button></div>`}</section>`;
+    <section class="card settings-card"><h2 class="section-title">Data &amp; session</h2><div class="settings-row"><div><strong>Export a local copy</strong><p>Download the currently unlocked profile and records as JSON.</p></div><button class="button secondary" id="export-data">${icon("download", "icon icon-sm")} Export</button></div><div class="settings-row"><div><strong>Log out of TsekAP</strong><p>Return to the passcode screen without deleting saved data.</p></div><button class="button secondary" type="button" data-action="logout">${icon("logout", "icon icon-sm")} Log out</button></div>${state.demo ? "" : `<div class="settings-row"><div><strong>Delete local profile</strong><p>Permanently remove the encrypted profile and all records from this browser.</p></div><button class="button danger" id="delete-profile">${icon("trash", "icon icon-sm")} Delete</button></div>`}</section>`;
 }
 
 function showFieldError(id, message) {
@@ -759,9 +760,16 @@ function bindEvents() {
     }
   });
 
-  document.querySelector("#lock-profile")?.addEventListener("click", () => {
-    state.payload = null; state.cryptoKey = null; state.demo = false; state.route = "auth"; state.authTab = "login"; render();
-  });
+  document.querySelectorAll('[data-action="logout"]').forEach((button) => button.addEventListener("click", () => {
+    state.payload = null;
+    state.cryptoKey = null;
+    state.demo = false;
+    state.route = "auth";
+    state.authTab = localStorage.getItem(ACCOUNT_KEY) ? "login" : "new";
+    state.menuOpen = false;
+    render();
+    showToast("You’re logged out. Your saved data remains on this device.", "success");
+  }));
   document.querySelector("#export-data")?.addEventListener("click", () => {
     const blob = new Blob([JSON.stringify(state.payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
