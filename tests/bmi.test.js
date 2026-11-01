@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateBmi, completedAgeMonths } from "../server/bmi.js";
+import { calculateBmi, completedAgeMonths, retentionExpiry } from "../shared/bmi.js";
 
 test("calculates the known illustrative female result", () => {
   const result = calculateBmi(162, 54.6, 196, "female");
@@ -16,4 +16,8 @@ test("rejects measurements outside the supported range", () => {
 test("uses completed age in months", () => {
   assert.equal(completedAgeMonths("2010-01-15", new Date("2026-05-14T00:00:00Z")), 195);
   assert.equal(completedAgeMonths("2010-01-15", new Date("2026-05-15T00:00:00Z")), 196);
+});
+
+test("expires health check-ins after 90 days", () => {
+  assert.equal(retentionExpiry("2026-01-01T00:00:00Z").toISOString(), "2026-04-01T00:00:00.000Z");
 });

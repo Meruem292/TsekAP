@@ -26,7 +26,13 @@ the initial password-setup email.
 
 ## Privacy model
 
-Approved profiles and check-ins are protected by Firebase Authentication, Firestore Security Rules, and trusted Vercel Functions. New student registrations remain pending until an administrator approves them. The legacy AES-GCM local format is recognized only for an explicit one-time import after cloud sign-in.
+Approved profiles and check-ins are protected by Firebase Authentication, Firestore Security Rules, and trusted Vercel Functions. New student registrations remain pending until an administrator approves them. Each check-in receives a 90-day expiry timestamp and a secured daily Vercel Cron Job removes expired records. The application also excludes expired records from student history, administrator views, and exports before cleanup runs. The legacy AES-GCM local format is recognized only for an explicit one-time import after cloud sign-in.
+
+## Student flow and offline use
+
+Students begin at a dedicated welcome screen, acknowledge the educational disclaimer, and then sign in or request an account. The PWA shell, WHO LMS reference data, BMI calculator, and educational recommendation logic are bundled for limited offline use. Offline calculations remain in memory only: they are not written to device storage or uploaded to Firestore.
+
+Recommendations adapt to the result category and the optional health conditions in the student's profile. They remain general educational guidance and link to official WHO, Philippine DOH, and CDC sources.
 
 ## Welcome avatar
 
@@ -34,7 +40,7 @@ The interactive doctor welcome avatar is rendered from the supplied Lottie JSON 
 
 ## Motion system
 
-Page entrances, text reveals, scroll-triggered card transitions, metric/chart drawing, and interactive zoom feedback use locally vendored GSAP 3.15.0 with ScrollTrigger. The scripts are cached by the service worker so the motion system remains available offline. Motion automatically simplifies when the device requests reduced motion.
+Page transitions use the View Transitions API when available, with a CSS/Web Animations fallback. Scroll-triggered card entrances use `IntersectionObserver`, and every transition simplifies when the device requests reduced motion.
 
 ## Brand assets
 
@@ -42,4 +48,4 @@ The official TsekAP logo is stored as `dist/assets/tsekap-logo-transparent.png`.
 
 ## Reference
 
-BMI-for-age calculations use the 2007 WHO growth reference LMS values for ages 15–19. Results are educational screening indicators, not diagnoses or medical advice.
+BMI-for-age calculations use the 2007 WHO growth reference LMS values for supported ages 15–18. Results are educational screening indicators, not diagnoses or medical advice. Official source links are available from the in-app Learn and About pages.

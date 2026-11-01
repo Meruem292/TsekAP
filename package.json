@@ -9,10 +9,11 @@
     "dev:full": "npm run dev",
     "dev:vercel": "vercel dev",
     "build": "vite build",
-    "check": "node --check api/[...path].js && node --check client/main.js && node --check scripts/bootstrap-admin.mjs && node --check scripts/dev-server.mjs && node --check scripts/full-dev.mjs && node --check scripts/smoke-registration.mjs",
+    "check": "node --check api/[...path].js && node --check api/cron/retention.js && node --check client/main.js && node --check shared/bmi.js && node --check shared/recommendations.js && node --check scripts/bootstrap-admin.mjs && node --check scripts/backfill-retention.mjs && node --check scripts/dev-server.mjs && node --check scripts/full-dev.mjs && node --check scripts/smoke-registration.mjs",
     "test": "node --test tests/*.test.js",
     "smoke:registration": "node scripts/smoke-registration.mjs",
-    "bootstrap:admin": "node scripts/bootstrap-admin.mjs"
+    "bootstrap:admin": "node scripts/bootstrap-admin.mjs",
+    "retention:backfill": "node scripts/backfill-retention.mjs"
   },
   "dependencies": {
     "firebase": "13.1.0",

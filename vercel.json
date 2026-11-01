@@ -3,5 +3,8 @@
   "devCommand": "npm run dev:ui",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "regions": ["sin1"]
+  "regions": ["sin1"],
+  "crons": [
+    { "path": "/api/cron/retention", "schedule": "17 2 * * *" }
+  ]
 }

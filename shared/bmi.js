@@ -55,3 +55,12 @@ export function calculateBmi(height, weight, ageMonths, sex) {
   const classification = z < -3 ? "Severe thinness" : z < -2 ? "Thinness" : z <= 1 ? "Within expected range" : z <= 2 ? "Overweight" : "Obesity";
   return { bmi, z, classification };
 }
+
+export const RETENTION_DAYS = 90;
+
+export function retentionExpiry(measuredAt = new Date()) {
+  const date = new Date(measuredAt);
+  if (Number.isNaN(date.getTime())) throw new Error("A valid measurement date is required.");
+  date.setUTCDate(date.getUTCDate() + RETENTION_DAYS);
+  return date;
+}

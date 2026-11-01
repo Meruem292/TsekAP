@@ -12,6 +12,7 @@ const adminAuth = getAuth(adminApp);
 const db = getFirestore(adminApp);
 const envText = await readFile(new URL("../.env", import.meta.url), "utf8");
 const apiKey = envText.match(/^VITE_FIREBASE_API_KEY=(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, "");
+const smokeAdminEmail = process.env.SMOKE_ADMIN_EMAIL || envText.match(/^BOOTSTRAP_ADMIN_EMAIL=(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, "") || "carbonaranagata@gmail.com";
 if (!apiKey) throw new Error("VITE_FIREBASE_API_KEY is missing.");
 
 const lrn = `98${Date.now().toString().slice(-10)}`;
@@ -66,7 +67,7 @@ try {
   });
   if (blockedCheckin.status !== 403) throw new Error(`Pending check-in returned ${blockedCheckin.status}, expected 403.`);
 
-  const adminUser = await adminAuth.getUserByEmail("newroskoto@gmail.com");
+  const adminUser = await adminAuth.getUserByEmail(smokeAdminEmail);
   adminUid = adminUser.uid;
   const adminToken = await exchangeCustomToken(await adminAuth.createCustomToken(adminUid));
   const approve = await fetch(`${baseUrl}/api/admin/users/${uid}/approve`, {

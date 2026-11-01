@@ -1,14 +1,19 @@
 import crypto from "node:crypto";
 import {
-  adminAuth, audit, db, FieldValue, normalizeLrn, rateLimit, sha256, studentEmail,
+  adminAuth, audit, db, FieldValue, normalizeLrn, rateLimit, sha256, studentEmail, Timestamp,
   verifyAdmin, verifyAppCheck, verifyUser
 } from "../server/firebase-admin.js";
-import { calculateBmi, completedAgeMonths } from "../server/bmi.js";
+import { calculateBmi, completedAgeMonths, RETENTION_DAYS, retentionExpiry } from "../shared/bmi.js";
 
 const json = (data, status = 200, headers = {}) => Response.json(data, {
   status,
   headers: { "cache-control": "no-store", ...headers }
 });
+
+function withinRetentionWindow(value) {
+  const date = value?.toDate?.() || new Date(value);
+  return !Number.isNaN(date.getTime()) && date.getTime() >= Date.now() - RETENTION_DAYS * 86400000;
+}
 
 async function body(request) {
   try { return await request.json(); }
@@ -94,7 +99,7 @@ async function me(request) {
   let checkins = [];
   if (profile.role === "student" && profile.status === "approved") {
     const snapshots = await userSnap.ref.collection("checkins").orderBy("date", "desc").limit(100).get();
-    checkins = snapshots.docs.map((doc) => ({ id: doc.id, ...doc.data(), date: doc.data().date?.toDate?.()?.toISOString?.() || doc.data().date }));
+    checkins = snapshots.docs.filter((doc) => withinRetentionWindow(doc.data().date)).map((doc) => ({ id: doc.id, ...doc.data(), date: doc.data().date?.toDate?.()?.toISOString?.() || doc.data().date }));
   }
   return json({ user: profile, checkins, claims: { admin: actor.admin === true } });
 }
@@ -107,11 +112,12 @@ async function createCheckin(request) {
     throw Object.assign(new Error("Your student account is not approved."), { status: 403 });
   }
   const input = await body(request);
-  const ageMonths = completedAgeMonths(userSnap.data().dob, input.date ? new Date(input.date) : new Date());
+  const measuredAt = input.date ? new Date(input.date) : new Date();
+  const ageMonths = completedAgeMonths(userSnap.data().dob, measuredAt);
   const result = calculateBmi(input.height, input.weight, ageMonths, userSnap.data().sex);
   const ref = userRef.collection("checkins").doc();
   const record = {
-    studentId: actor.uid, date: FieldValue.serverTimestamp(), height: Number(input.height), weight: Number(input.weight),
+    studentId: actor.uid, date: Timestamp.fromDate(measuredAt), expiresAt: Timestamp.fromDate(retentionExpiry(measuredAt)), height: Number(input.height), weight: Number(input.weight),
     ageMonths, ...result, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid
   };
   await ref.set(record);
@@ -153,11 +159,11 @@ async function importLocal(request) {
     const ref = userRef.collection("checkins").doc(`local-${stableId}`);
     if ((await ref.get()).exists) continue;
     const date = new Date(source.date);
-    if (Number.isNaN(date.getTime())) continue;
+    if (Number.isNaN(date.getTime()) || !withinRetentionWindow(date)) continue;
     const ageMonths = completedAgeMonths(user.dob, date);
     const result = calculateBmi(source.height, source.weight, ageMonths, user.sex);
     await ref.set({
-      studentId: actor.uid, date, height: Number(source.height), weight: Number(source.weight), ageMonths, ...result,
+      studentId: actor.uid, date: Timestamp.fromDate(date), expiresAt: Timestamp.fromDate(retentionExpiry(date)), height: Number(source.height), weight: Number(source.weight), ageMonths, ...result,
       importedFromLocal: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid
     });
     imported += 1;
@@ -252,7 +258,7 @@ async function adminDeleteUser(request, uid) {
 async function adminCheckins(request, uid) {
   await verifyAdmin(request);
   const snapshots = await db.collection("users").doc(uid).collection("checkins").orderBy("date", "desc").limit(250).get();
-  return json({ checkins: snapshots.docs.map((doc) => ({ id: doc.id, ...doc.data(), date: doc.data().date?.toDate?.()?.toISOString?.() || null })) });
+  return json({ checkins: snapshots.docs.filter((doc) => withinRetentionWindow(doc.data().date)).map((doc) => ({ id: doc.id, ...doc.data(), date: doc.data().date?.toDate?.()?.toISOString?.() || null })) });
 }
 
 async function adminMutateCheckin(request, uid, id, method) {
@@ -271,7 +277,7 @@ async function adminMutateCheckin(request, uid, id, method) {
   const date = input.date ? new Date(input.date) : existing.data().date.toDate();
   const ageMonths = completedAgeMonths(user.dob, date);
   const result = calculateBmi(input.height, input.weight, ageMonths, user.sex);
-  await ref.update({ date, height: Number(input.height), weight: Number(input.weight), ageMonths, ...result, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid });
+  await ref.update({ date: Timestamp.fromDate(date), expiresAt: Timestamp.fromDate(retentionExpiry(date)), height: Number(input.height), weight: Number(input.weight), ageMonths, ...result, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid });
   await audit(actor, "checkin.update", uid, { targetId: id, changedFields: ["date", "height", "weight", "bmi", "z", "classification"] });
   return json({ ok: true, ...result });
 }
@@ -282,7 +288,7 @@ async function adminExport(request) {
   const rows = [];
   for (const userDoc of users.docs) {
     const checkins = await userDoc.ref.collection("checkins").orderBy("date", "desc").get();
-    for (const checkin of checkins.docs) rows.push({ uid: userDoc.id, lrn: userDoc.data().lrn, name: userDoc.data().name, ...checkin.data(), date: checkin.data().date?.toDate?.()?.toISOString?.() || null });
+    for (const checkin of checkins.docs.filter((doc) => withinRetentionWindow(doc.data().date))) rows.push({ uid: userDoc.id, lrn: userDoc.data().lrn, name: userDoc.data().name, ...checkin.data(), date: checkin.data().date?.toDate?.()?.toISOString?.() || null });
   }
   await audit(actor, "data.export", null, { changedFields: ["student-checkins"] });
   return json({ rows });
@@ -303,6 +309,26 @@ function generateTemporaryPassword() {
   return `Ts!${crypto.randomBytes(6).toString("base64url")}7`;
 }
 
+async function cleanupExpiredCheckins(request) {
+  const expected = process.env.CRON_SECRET;
+  const supplied = request.headers.get("authorization");
+  if (!expected || supplied !== `Bearer ${expected}`) {
+    throw Object.assign(new Error("Maintenance authorization is required."), { status: 401 });
+  }
+  let deleted = 0;
+  while (true) {
+    const expired = await db.collectionGroup("checkins").where("expiresAt", "<=", Timestamp.now()).limit(400).get();
+    if (expired.empty) break;
+    const batch = db.batch();
+    expired.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    deleted += expired.size;
+    if (expired.size < 400) break;
+  }
+  await db.collection("auditLogs").add({ actorUid:"system", actorEmail:null, action:"retention.cleanup", targetUid:null, changedFields:["expired-checkins"], targetId:null, outcome:"success", note:`${deleted} expired check-in(s) removed`, createdAt:FieldValue.serverTimestamp() });
+  return json({ ok:true, deleted });
+}
+
 async function deleteStudentData(uid, user) {
   const checkins = await db.collection("users").doc(uid).collection("checkins").get();
   for (let offset = 0; offset < checkins.docs.length; offset += 400) {
@@ -316,6 +342,7 @@ async function deleteStudentData(uid, user) {
 
 async function dispatch(request, method) {
   const path = route(request);
+  if (method === "GET" && path === "cron/retention") return cleanupExpiredCheckins(request);
   if (method === "POST" && path === "auth/register") return register(request);
   if (method === "POST" && path === "auth/bootstrap-admin") return bootstrapAdmin(request);
   if (method === "GET" && path === "me") return me(request);

@@ -5,6 +5,8 @@ import {
   signOut, updatePassword
 } from "firebase/auth";
 import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckToken } from "firebase/app-check";
+import { calculateBmi, completedAgeMonths } from "../shared/bmi.js";
+import { HEALTH_REFERENCES, recommendationsFor } from "../shared/recommendations.js";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDMtwiGuNlBFkhpUMwIwImSKaLpK4WuaSo",
@@ -34,7 +36,8 @@ const CONDITIONS = [
 const state = {
   firebaseUser: null, profile: null, checkins: [], claims: {}, route: "home", menuOpen: false,
   authMode: "student-login", loading: true, adminStudents: [], auditLogs: [], adminSearch: "",
-  selectedStudent: null, selectedCheckins: []
+  selectedStudent: null, selectedCheckins: [], offlineResult: null,
+  publicStep: sessionStorage.getItem("tsekap.disclaimer-acknowledged") ? "auth" : "welcome"
 };
 
 const esc = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char]));
@@ -205,16 +208,73 @@ function renderLoading() {
 }
 
 function renderAuth() {
+  if (state.publicStep === "welcome") return renderWelcome();
+  if (state.publicStep === "disclaimer") return renderDisclaimer();
+  if (state.publicStep === "offline") return renderOfflineCalculator();
+  renderCloudAuth();
+}
+
+function brandLockup() {
+  return `<div class="auth-logo" aria-label="TsekAP Student Health"><div class="auth-logo-mark"><img src="/assets/tsekap-logo-transparent.png" alt=""></div><div class="auth-wordmark"><strong>Tsek<span>AP</span></strong><small>Student Health</small></div></div>`;
+}
+
+function renderWelcome() {
+  app.innerHTML = `<main class="auth-page welcome-page" id="main-content"><section class="auth-wrap welcome-wrap">
+    <div class="auth-story"><div>${brandLockup()}</div><div class="welcome-hero"><div class="welcome-copy"><span class="eyebrow light">Student health awareness</span><h1>Know your number.<br>Understand your health.</h1><p>TsekAP helps students ages 15–18 monitor BMI-for-age and learn practical, health-aware habits.</p></div><button class="welcome-avatar" id="welcome-avatar" type="button" aria-label="Play the welcome animation"><span class="avatar-stage"><span class="welcome-lottie" id="welcome-lottie"></span><img class="avatar-fallback" src="/assets/tsekap-logo-transparent.png" alt=""><span class="avatar-caption">Tap to welcome</span></span></button></div><div class="story-strip"><div class="story-item"><strong>1. Understand</strong><span>Read the educational disclaimer.</span></div><div class="story-item"><strong>2. Check in</strong><span>Enter measured height and weight.</span></div><div class="story-item"><strong>3. Learn</strong><span>Review guidance and trends.</span></div></div></div>
+    <section class="auth-panel"><div class="auth-panel-inner"><span class="eyebrow">Welcome to TsekAP</span><h2>A clearer way to monitor student health</h2><p>Results use the WHO BMI-for-age reference and are designed for awareness and prevention—not diagnosis.</p><div class="welcome-actions"><button class="button primary full" id="start-monitoring">Start monitoring</button><button class="button secondary full" id="offline-calculator">Use offline calculator</button><button class="text-button" id="admin-access">Administrator sign in</button></div><div class="notice">${icon("shield","icon icon-sm")}<span>Cloud records require an approved account. Offline calculations are not saved on this device.</span></div></div></section>
+  </section></main>`;
+  document.querySelector("#start-monitoring").addEventListener("click", () => navigate(() => { state.publicStep = "disclaimer"; render(); }));
+  document.querySelector("#offline-calculator").addEventListener("click", () => navigate(() => { state.publicStep = "offline"; render(); }));
+  document.querySelector("#admin-access").addEventListener("click", () => navigate(() => { state.publicStep = "auth"; state.authMode = "admin-login"; render(); }));
+  bindWelcomeAvatar();
+}
+
+function bindWelcomeAvatar() {
+  const host = document.querySelector("#welcome-avatar");
+  const target = document.querySelector("#welcome-lottie");
+  if (!host || !target || !window.lottie) return setTimeout(bindWelcomeAvatar, 120);
+  const animation = window.lottie.loadAnimation({ container: target, renderer: "svg", loop: true, autoplay: true, path: "/assets/doctor-welcome.json" });
+  animation.addEventListener("DOMLoaded", () => host.classList.add("is-loaded"));
+  host.addEventListener("click", () => { animation.goToAndPlay(0, true); host.animate([{transform:"scale(.98)"},{transform:"scale(1)"}],{duration:420,easing:"cubic-bezier(.18,.8,.24,1)"}); });
+}
+
+function renderDisclaimer() {
+  const points = [
+    "TsekAP provides educational BMI-for-age screening and does not diagnose a medical condition.",
+    "Results should be considered with growth history, symptoms, nutrition, activity, and professional advice.",
+    "Cloud health check-ins require an approved account and are automatically removed after 90 days.",
+    "If you have symptoms, rapid changes, or health concerns, speak with a qualified healthcare professional."
+  ];
+  app.innerHTML = `<main class="auth-page" id="main-content"><section class="disclaimer"><article class="card disclaimer-card"><div class="disclaimer-hero"><div class="disclaimer-icon">${icon("info","icon icon-lg")}</div><span class="eyebrow">Before your first check-in</span><h1>Please understand the result</h1><p>This short notice keeps TsekAP’s purpose clear and your health information handled responsibly.</p></div><div class="disclaimer-body"><ul class="disclaimer-points">${points.map((point)=>`<li><span class="check-badge">${icon("check","icon icon-sm")}</span><span>${esc(point)}</span></li>`).join("")}</ul><label class="agreement"><input id="disclaimer-agreement" type="checkbox"><span><strong>I understand.</strong><br>I will use TsekAP as an awareness tool and seek professional guidance when appropriate.</span></label><div class="field-actions"><button class="button ghost" id="disclaimer-back">Back</button><button class="button primary" id="accept-disclaimer" disabled>I understand — continue</button></div></div></article></section></main>`;
+  const agreement = document.querySelector("#disclaimer-agreement");
+  const accept = document.querySelector("#accept-disclaimer");
+  agreement.addEventListener("change", () => { accept.disabled = !agreement.checked; });
+  document.querySelector("#disclaimer-back").addEventListener("click", () => navigate(() => { state.publicStep = "welcome"; render(); }));
+  accept.addEventListener("click", () => navigate(() => { sessionStorage.setItem("tsekap.disclaimer-acknowledged", "true"); state.publicStep = "auth"; state.authMode = "student-login"; render(); }));
+}
+
+function renderOfflineCalculator() {
+  app.innerHTML = `<main class="auth-page" id="main-content"><section class="disclaimer"><article class="card offline-calculator"><div class="disclaimer-hero"><div class="disclaimer-icon">${icon("activity","icon icon-lg")}</div><span class="eyebrow">Private on-device calculation</span><h1>Offline BMI-for-age</h1><p>Calculate an educational result without signing in. Nothing entered here is saved or uploaded.</p></div><form class="disclaimer-body" id="offline-form"><div class="field-grid"><div class="field"><label for="offline-dob">Date of birth</label><input class="input" id="offline-dob" name="dob" type="date" required></div><div class="field"><label for="offline-sex">WHO reference sex</label><select class="input" id="offline-sex" name="sex" required><option value="">Select</option><option value="female">Female</option><option value="male">Male</option></select></div><div class="field"><label for="offline-height">Height (cm)</label><input class="input" id="offline-height" name="height" type="number" min="100" max="220" step=".1" required></div><div class="field"><label for="offline-weight">Weight (kg)</label><input class="input" id="offline-weight" name="weight" type="number" min="25" max="200" step=".1" required></div></div><div id="offline-result" aria-live="polite"></div><p class="field-error" id="offline-error" hidden></p><div class="field-actions"><button class="button ghost" type="button" id="offline-back">Back</button><button class="button primary" type="submit">Calculate result</button></div></form></article></section></main>`;
+  document.querySelector("#offline-back").addEventListener("click", () => navigate(() => { state.publicStep = "welcome"; render(); }));
+  document.querySelector("#offline-form").addEventListener("submit", (event) => {
+    event.preventDefault(); const data = new FormData(event.currentTarget);
+    try {
+      const result = calculateBmi(data.get("height"), data.get("weight"), completedAgeMonths(data.get("dob"), new Date()), data.get("sex"));
+      const guidance = recommendationsFor(result.classification);
+      document.querySelector("#offline-error").hidden = true;
+      document.querySelector("#offline-result").innerHTML = `<section class="offline-result"><span class="eyebrow">Your educational result</span><div class="offline-result-number">${result.bmi.toFixed(1)}</div><span class="classification-pill ${tone(result.classification)}">${esc(result.classification)}</span><p>WHO BMI-for-age z-score: <strong>${signed(result.z)}</strong></p><div class="mini-guidance">${guidance.slice(0,2).map((item)=>`<div><strong>${esc(item.title)}</strong><span>${esc(item.body)}</span></div>`).join("")}</div><p class="micro-note">This calculation is not saved. It is a screening result, not a diagnosis.</p></section>`;
+    } catch (error) { fieldError("offline-error", error.message); }
+  });
+}
+
+function renderCloudAuth() {
   const mode = state.authMode;
   const isRegister = mode === "student-register";
   const isAdmin = mode === "admin-login";
   app.innerHTML = `<main class="auth-page cloud-auth" id="main-content">
     <section class="auth-wrap">
       <div class="auth-story">
-        <div class="auth-logo" aria-label="TsekAP Student Health">
-          <div class="auth-logo-mark"><img src="/assets/tsekap-logo-transparent.png" alt=""></div>
-          <div class="auth-wordmark"><strong>Tsek<span>AP</span></strong><small>Student Health</small></div>
-        </div>
+        ${brandLockup()}
         <div class="story-copy"><span class="eyebrow">Student health awareness</span><h1>Know your number.<br>Understand your health.</h1><p>Secure school health monitoring with careful, educational BMI-for-age guidance.</p>
           <div class="story-list"><div class="story-item"><strong>Protected cloud profile</strong><span>Firebase Auth controls access to every record.</span></div><div class="story-item"><strong>Administrator approval</strong><span>New student accounts remain private and pending until reviewed.</span></div></div>
         </div>
@@ -227,12 +287,14 @@ function renderAuth() {
           <div class="auth-tabs" role="tablist"><button class="auth-tab ${!isAdmin ? "active" : ""}" data-auth-mode="student-login">Student</button><button class="auth-tab ${isAdmin ? "active" : ""}" data-auth-mode="admin-login">Administrator</button></div>
           ${isRegister ? registrationForm() : loginForm(isAdmin)}
           ${!isAdmin ? `<button class="text-button" data-auth-mode="${isRegister ? "student-login" : "student-register"}">${isRegister ? "Already registered? Sign in" : "New student? Request an account"}</button>` : ""}
-          <div class="notice">${icon("shield","icon icon-sm")}<span>Health records require an approved account and an internet connection. TsekAP is educational and does not diagnose.</span></div>
+          <div class="notice">${icon("shield","icon icon-sm")}<span>Health records require an approved account, use a 90-day retention period, and need an internet connection. TsekAP is educational and does not diagnose.</span></div>
+          <button class="text-button" id="auth-home">Back to welcome</button>
         </div>
       </section>
     </section>
   </main>`;
   bindAuth();
+  document.querySelector("#auth-home").addEventListener("click", () => navigate(() => { state.publicStep = "welcome"; render(); }));
 }
 
 function loginForm(admin) {
@@ -250,7 +312,7 @@ function registrationForm() {
     <div class="field-grid"><div class="field full"><label for="name">Full name</label><input class="input" id="name" name="name" maxlength="100" required></div>
     <div class="field"><label for="dob">Date of birth</label><input class="input" id="dob" name="dob" type="date" required></div><div class="field"><label for="sex">WHO reference sex</label><select class="input" id="sex" name="sex" required><option value="">Select</option><option value="female">Female</option><option value="male">Male</option></select></div>
     <div class="field"><label for="lrn">12-digit LRN</label><input class="input" id="lrn" name="lrn" inputmode="numeric" pattern="\\d{12}" maxlength="12" required></div><div class="field"><label for="new-password">Password</label><div class="password-control"><input class="input" id="new-password" name="password" type="password" minlength="8" pattern="(?=.*[A-Za-z])(?=.*\\d).{8,}" title="Use at least 8 characters with a letter and a number." autocomplete="new-password" required><button class="password-toggle" type="button" data-password-toggle aria-label="Show password" aria-pressed="false">${icon("eye","icon icon-sm")}</button></div><span class="field-hint">At least 8 characters with a letter and number.</span></div></div>
-    <details class="conditions-disclosure"><summary>Health conditions (optional)</summary><div class="conditions compact">${conditionOptions}</div></details>
+    <details class="conditions-disclosure"><summary>Health conditions (optional)</summary><div class="conditions compact">${conditionOptions}</div><div class="field other-condition-field" id="other-condition-field" hidden><label for="other-condition">Other health condition</label><input class="input" id="other-condition" name="otherCondition" maxlength="160" placeholder="Describe only what is helpful for guidance"></div></details>
     <p class="field-error" id="auth-error" role="alert" hidden></p><button class="button primary full" type="submit">Submit for approval</button>
   </form>`;
 }
@@ -270,7 +332,7 @@ function bindAuth() {
     event.preventDefault(); const data = new FormData(event.currentTarget); const button = event.submitter; const label = button.textContent; button.disabled = true; button.textContent = "Submitting…"; event.currentTarget.setAttribute("aria-busy", "true");
     let registered = false;
     try {
-      const payload = { lrn:data.get("lrn"), password:data.get("password"), profile:{ name:data.get("name"), dob:data.get("dob"), sex:data.get("sex"), conditions:data.getAll("conditions"), otherCondition:"" } };
+      const payload = { lrn:data.get("lrn"), password:data.get("password"), profile:{ name:data.get("name"), dob:data.get("dob"), sex:data.get("sex"), conditions:data.getAll("conditions"), otherCondition:data.get("otherCondition") || "" } };
       await api("auth/register", { method:"POST", body:JSON.stringify(payload) });
       registered = true;
       await signInWithEmailAndPassword(auth, await studentEmail(payload.lrn), String(payload.password));
@@ -286,9 +348,15 @@ function bindAuth() {
   });
   const conditionBoxes = [...document.querySelectorAll('input[name="conditions"]')];
   conditionBoxes.forEach((box) => box.addEventListener("change", () => {
-    if (!box.checked) return;
-    if (box.value === "none") conditionBoxes.forEach((other) => { if (other !== box) other.checked = false; });
-    else conditionBoxes.find((other) => other.value === "none").checked = false;
+    if (box.checked) {
+      if (box.value === "none") conditionBoxes.forEach((other) => { if (other !== box) other.checked = false; });
+      else conditionBoxes.find((other) => other.value === "none").checked = false;
+    }
+    const otherField = document.querySelector("#other-condition-field");
+    const otherInput = document.querySelector("#other-condition");
+    const showOther = conditionBoxes.some((item) => item.value === "other" && item.checked);
+    if (otherField) otherField.hidden = !showOther;
+    if (otherInput) otherInput.required = showOther;
   }));
 }
 
@@ -306,7 +374,7 @@ function renderChangePassword() {
 }
 
 function renderStudentShell() {
-  const items = [["home","home","Home"],["measurement","plus","New check-in"],["history","chart","History"],["learn","book","Learn"],["account","shield","Account"]];
+  const items = [["home","home","Home"],["measurement","plus","New check-in"],["history","chart","History"],["learn","book","Learn"],["about","info","About"],["account","shield","Account"]];
   const nav = items.map(([route,glyph,label]) => `<button class="nav-button ${state.route===route?"active":""}" data-route="${route}">${icon(glyph)}<span>${label}</span></button>`).join("");
   app.innerHTML = `<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark"><img class="brand-logo" src="/assets/tsekap-logo-transparent.png" alt=""></div><div class="brand-copy"><strong>Tsek<b>AP</b></strong><span>Awareness & Prevention</span></div></div><nav class="nav-list">${nav}</nav><div class="sidebar-footer"><div class="profile-chip"><div class="avatar">${esc(state.profile.name[0])}</div><div class="profile-meta"><strong>${esc(state.profile.name)}</strong><span>Approved student</span></div></div><button class="logout-button" data-logout>${icon("logout")}<span>Log out</span></button><div class="connection"><span class="status-dot ${navigator.onLine?"":"offline"}"></span><span>${navigator.onLine?"Online":"Connection required"}</span></div></div></aside>
   <header class="mobile-bar"><div class="mobile-brand"><div class="brand-mark"><img class="brand-logo" src="/assets/tsekap-logo-transparent.png" alt=""></div><span>TsekAP</span></div><button class="menu-button" id="menu-button" aria-label="${state.menuOpen?"Close":"Open"} menu" aria-expanded="${state.menuOpen}" aria-controls="mobile-menu">${icon(state.menuOpen?"x":"menu")}</button></header>
@@ -320,45 +388,66 @@ function studentRoute() {
   if (state.route === "measurement") return measurementView();
   if (state.route === "history") return historyView();
   if (state.route === "learn") return learnView();
+  if (state.route === "about") return aboutView();
   if (state.route === "account") return accountView();
   return studentHome();
 }
 
 function studentHome() {
-  const latest = state.checkins[0];
+  const latest = state.offlineResult || state.checkins[0];
   if (!latest) return `<header class="page-header"><div><span class="eyebrow">Student dashboard</span><h1 class="page-title">Welcome, ${esc(firstName())}</h1><p class="page-subtitle">Your protected cloud profile is ready.</p></div></header><section class="card empty-state"><div class="empty-icon">${icon("plus","icon icon-lg")}</div><h2>Ready for your first check-in?</h2><p>Enter your measured height and weight to calculate an educational WHO BMI-for-age result.</p><button class="button primary" data-route="measurement">Start a check-in</button></section>`;
   const z = Number(latest.z);
   const marker = Math.max(0, Math.min(100, ((z + 3) / 6) * 100));
+  const guidance = recommendationsFor(latest.classification, state.profile.conditions);
   return `<header class="page-header"><div><span class="eyebrow">Student dashboard</span><h1 class="page-title">Welcome, ${esc(firstName())}</h1><p class="page-subtitle">Here is your latest protected health check-in.</p></div><button class="button primary" data-route="measurement">${icon("plus","icon icon-sm")} New check-in</button></header>
+  ${latest.offline ? `<div class="notice warning offline-banner">${icon("info","icon icon-sm")}<span>This result was calculated offline and was not saved to your cloud history.</span></div>` : ""}
   <div class="dashboard-grid">
     <section class="card result-card" aria-labelledby="latest-result-title">
       <div class="result-top"><div><span class="metric-label" id="latest-result-title">BMI-for-age</span><div class="metric-value">${Number(latest.bmi).toFixed(1)}</div><span class="classification-pill ${tone(latest.classification)}">${esc(latest.classification)}</span></div><div class="result-explainer"><strong>Screening result</strong><p>Your z-score is <b>${signed(latest.z)}</b>. Use this result for awareness—not as a diagnosis.</p></div></div>
       <div class="range-wrap"><div class="range-meta"><span>WHO BMI-for-age z-score</span><strong>${signed(latest.z)}</strong></div><div class="range-track" aria-hidden="true"><span class="range-marker" style="left:${marker.toFixed(2)}%"></span></div><div class="range-labels" aria-hidden="true"><span>−3</span><span>−2</span><span>+1</span><span>+2</span><span>+3</span></div><div class="legend"><span><i class="swatch low"></i>Thinness</span><span><i class="swatch expected"></i>Expected range</span><span><i class="swatch elevated"></i>Overweight</span><span><i class="swatch high"></i>Obesity</span></div></div>
     </section>
-    <section class="card measurements" aria-labelledby="measurements-title"><span class="eyebrow">Latest check-in</span><h2 class="section-title" id="measurements-title">Your measurements</h2><div class="data-list"><div class="data-row">${icon("ruler","icon icon-sm")}<span>Height</span><strong>${Number(latest.height).toFixed(1)} cm</strong></div><div class="data-row">${icon("scale","icon icon-sm")}<span>Weight</span><strong>${Number(latest.weight).toFixed(1)} kg</strong></div><div class="data-row">${icon("calendar","icon icon-sm")}<span>Checked</span><strong>${formatDate(latest.date)}</strong></div></div><p class="micro-note">${icon("shield","icon icon-sm")} Protected health record</p></section>
-    <section class="card recommend-card"><span class="eyebrow">Everyday wellbeing</span><h2 class="section-title">Small, healthy choices you can keep building</h2><div class="recommend-layout"><div class="tips"><div class="tip"><div class="tip-icon">${icon("activity")}</div><div><strong>Move in ways you enjoy</strong><span>Build regular movement into your day and increase activity gradually.</span></div></div><div class="tip"><div class="tip-icon">${icon("leaf")}</div><div><strong>Choose varied, balanced meals</strong><span>Use regular meals, varied food groups, and hydration as everyday foundations.</span></div></div></div><div class="wellness-motif"><div class="rings" aria-hidden="true"></div><div class="motif-copy"><strong>Small steps add up.</strong><br>Focus on routines you can maintain, not a single number.</div></div></div></section>
+    <section class="card measurements" aria-labelledby="measurements-title"><span class="eyebrow">Latest check-in</span><h2 class="section-title" id="measurements-title">Your measurements</h2><div class="data-list"><div class="data-row">${icon("ruler","icon icon-sm")}<span>Height</span><strong>${Number(latest.height).toFixed(1)} cm</strong></div><div class="data-row">${icon("scale","icon icon-sm")}<span>Weight</span><strong>${Number(latest.weight).toFixed(1)} kg</strong></div><div class="data-row">${icon("calendar","icon icon-sm")}<span>Checked</span><strong>${formatDate(latest.date)}</strong></div></div><p class="micro-note">${icon(latest.offline?"info":"shield","icon icon-sm")} ${latest.offline?"Not saved":"Protected for up to 90 days"}</p></section>
+    <section class="card recommend-card"><span class="eyebrow">Guidance for your profile</span><h2 class="section-title">Supportive next steps</h2><div class="recommend-layout"><div class="tips">${guidance.map((item)=>`<div class="tip"><div class="tip-icon">${icon(item.icon)}</div><div><strong>${esc(item.title)}</strong><span>${esc(item.body)}</span><a class="tip-source" href="${item.href}" target="_blank" rel="noopener">${esc(item.source)} ↗</a></div></div>`).join("")}</div><div class="wellness-motif"><div class="rings" aria-hidden="true"></div><div class="motif-copy"><strong>Guidance adapts carefully.</strong><br>It considers the BMI category and optional conditions in your profile, but never replaces professional advice.</div></div></div></section>
   </div>`;
 }
 
 function measurementView() {
-  return `<div class="form-shell"><form class="card form-card" id="checkin-form"><span class="eyebrow">New check-in</span><h1>Enter your measurements</h1><p class="lead">Use height and weight measured with your school’s equipment.</p><div class="field-grid"><div class="field"><label for="height">Height (cm)</label><input class="input" id="height" name="height" type="number" min="100" max="220" step=".1" required></div><div class="field"><label for="weight">Weight (kg)</label><input class="input" id="weight" name="weight" type="number" min="25" max="200" step=".1" required></div></div><p class="field-error" id="checkin-error" hidden></p><div class="notice warning">${icon("info","icon icon-sm")}<span>BMI-for-age is a screening indicator. Discuss concerns with a qualified healthcare professional.</span></div><div class="field-actions"><button class="button ghost" type="button" data-route="home">Cancel</button><button class="button primary" type="submit">Calculate and save</button></div></form></div>`;
+  return `<div class="form-shell"><form class="card form-card" id="checkin-form"><span class="eyebrow">New check-in</span><h1>Enter your measurements</h1><p class="lead">Use height and weight measured with your school’s equipment.</p><div class="field-grid"><div class="field"><label for="height">Height (cm)</label><input class="input" id="height" name="height" type="number" min="100" max="220" step=".1" required></div><div class="field"><label for="weight">Weight (kg)</label><input class="input" id="weight" name="weight" type="number" min="25" max="200" step=".1" required></div></div><p class="field-error" id="checkin-error" hidden></p><div class="notice warning">${icon("info","icon icon-sm")}<span>${navigator.onLine?"BMI-for-age is a screening indicator. Saved check-ins are removed after 90 days.":"You are offline. TsekAP can calculate this result on your device, but it will not be saved."}</span></div><div class="field-actions"><button class="button ghost" type="button" data-route="home">Cancel</button><button class="button primary" type="submit">${navigator.onLine?"Calculate and save":"Calculate offline"}</button></div></form></div>`;
 }
 
 function historyView() {
-  return `<header class="page-header"><div><span class="eyebrow">Monitoring history</span><h1 class="page-title">Your check-ins</h1><p class="page-subtitle">Records remain available until you or an administrator deletes the account.</p></div></header>${state.checkins.length ? `<div class="history-list">${state.checkins.map((record) => `<article class="card history-row"><div class="history-date"><strong>${formatDate(record.date,"short")}</strong></div><div><div class="history-bmi">${Number(record.bmi).toFixed(1)}</div><span class="classification-pill ${tone(record.classification)}">${esc(record.classification)}</span></div><div class="history-measure">Height<strong>${Number(record.height).toFixed(1)} cm</strong></div><div class="history-measure">Weight<strong>${Number(record.weight).toFixed(1)} kg</strong></div><div class="history-measure">WHO z-score<strong>${signed(record.z)}</strong></div></article>`).join("")}</div>` : '<section class="card empty-state"><h2>No history yet</h2><p>Your first check-in will appear here.</p></section>'}`;
+  return `<header class="page-header"><div><span class="eyebrow">Monitoring history</span><h1 class="page-title">Your check-ins</h1><p class="page-subtitle">Cloud check-ins are automatically removed 90 days after measurement.</p></div></header>${state.checkins.length ? `${historyChart(state.checkins)}<div class="history-list">${state.checkins.map((record) => `<article class="card history-row"><div class="history-date"><strong>${formatDate(record.date,"short")}</strong></div><div><div class="history-bmi">${Number(record.bmi).toFixed(1)}</div><span class="classification-pill ${tone(record.classification)}">${esc(record.classification)}</span></div><div class="history-measure">Height<strong>${Number(record.height).toFixed(1)} cm</strong></div><div class="history-measure">Weight<strong>${Number(record.weight).toFixed(1)} kg</strong></div><div class="history-measure">WHO z-score<strong>${signed(record.z)}</strong></div></article>`).join("")}</div>` : '<section class="card empty-state"><h2>No history yet</h2><p>Your first check-in will appear here.</p></section>'}`;
+}
+
+function historyChart(records) {
+  const values = records.slice(0, 8).reverse().map((item) => ({ bmi:Number(item.bmi), date:item.date })).filter((item) => Number.isFinite(item.bmi));
+  if (values.length < 2) return "";
+  const min = Math.min(...values.map((item)=>item.bmi)) - 1;
+  const max = Math.max(...values.map((item)=>item.bmi)) + 1;
+  const points = values.map((item,index)=>({ ...item, x:28 + index * (544 / (values.length - 1)), y:132 - ((item.bmi - min) / Math.max(1, max-min)) * 102 }));
+  const path = points.map((point,index)=>`${index?"L":"M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  return `<section class="card history-chart-card"><div class="section-heading"><div><span class="eyebrow">Recent trend</span><h2>BMI history</h2></div><span class="chart-note">Educational context only</span></div><svg class="chart" viewBox="0 0 600 160" role="img" aria-label="Line chart of recent BMI results"><path class="chart-grid" d="M28 30H572M28 81H572M28 132H572"/><path class="chart-line" d="${path}"/>${points.map((point)=>`<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="5"><title>${formatDate(point.date,"short")}: BMI ${point.bmi.toFixed(1)}</title></circle>`).join("")}${points.map((point)=>`<text x="${point.x}" y="153" text-anchor="middle">${new Intl.DateTimeFormat("en-PH",{month:"short",day:"numeric"}).format(new Date(point.date))}</text>`).join("")}</svg></section>`;
 }
 
 function learnView() {
-  return `<header class="page-header"><div><span class="eyebrow">Learn</span><h1 class="page-title">Understand the result carefully</h1><p class="page-subtitle">BMI-for-age is one screening indicator, not a diagnosis.</p></div></header><div class="article-grid"><article class="card article-card"><h2>What BMI-for-age means</h2><p>Adolescent BMI is compared with an age- and sex-specific WHO reference using a z-score.</p></article><article class="card article-card"><h2>What BMI cannot tell you</h2><p>It does not directly measure body fat, fitness, nutrition, or overall health.</p></article><article class="card article-card"><h2>When to ask for help</h2><p>Discuss concerns, unexpected changes, or symptoms with a qualified healthcare professional.</p></article></div>`;
+  return `<header class="page-header"><div><span class="eyebrow">Health education</span><h1 class="page-title">Understand the result carefully</h1><p class="page-subtitle">BMI-for-age is one screening indicator—not a diagnosis or a judgment.</p></div></header><div class="article-grid"><article class="card article-card formula-card"><div class="article-icon">${icon("activity")}</div><h2>How BMI is calculated</h2><p class="formula">weight (kg) ÷ height (m)²</p><p>For adolescents, the number is then compared with an age- and sex-specific WHO reference and expressed as a z-score.</p></article><article class="card article-card"><div class="article-icon">${icon("chart")}</div><h2>WHO BMI-for-age categories</h2><div class="category-list"><span><strong>Below −3 SD</strong> Severe thinness</span><span><strong>−3 to below −2 SD</strong> Thinness</span><span><strong>−2 to +1 SD</strong> Within expected range</span><span><strong>Above +1 to +2 SD</strong> Overweight</span><span><strong>Above +2 SD</strong> Obesity</span></div></article><article class="card article-card"><div class="article-icon">${icon("info")}</div><h2>Why monitoring helps</h2><p>A pattern over time can provide more context than one number. Growth history, symptoms, food access, movement, sleep, and health conditions also matter.</p></article><article class="card article-card"><div class="article-icon">${icon("heart")}</div><h2>When to ask for help</h2><p>Discuss rapid or unexpected changes, symptoms, or concerns with a qualified healthcare professional. Never use TsekAP to self-diagnose or start a restrictive diet.</p></article><article class="card article-card references-card"><div class="article-icon">${icon("book")}</div><h2>Official references</h2><div class="reference-list">${referenceLinks()}</div></article></div>`;
+}
+
+function referenceLinks() {
+  return [["WHO growth reference for ages 5–19",HEALTH_REFERENCES.whoGrowth],["WHO healthy diet guidance",HEALTH_REFERENCES.whoDiet],["WHO physical activity guidance",HEALTH_REFERENCES.whoActivity],["Philippine DOH health advisories",HEALTH_REFERENCES.dohAdolescent]].map(([label,href])=>`<a class="reference-link" href="${href}" target="_blank" rel="noopener"><span>${esc(label)}</span><strong>Open ↗</strong></a>`).join("");
+}
+
+function aboutView() {
+  return `<header class="page-header"><div><span class="eyebrow">About TsekAP</span><h1 class="page-title">Awareness and prevention, designed for students</h1><p class="page-subtitle">A school health-monitoring experience grounded in education, privacy, and responsible guidance.</p></div></header><div class="about-hero"><article class="card about-copy"><h2>What TsekAP means</h2><p><strong>TsekAP</strong> brings together the idea of a health “check” with awareness and prevention. It supports students ages 15–18 in understanding BMI-for-age results without presenting them as a diagnosis.</p><p>The system combines careful measurement, WHO reference data, short-term trend monitoring, and condition-aware educational recommendations.</p></article><aside class="card about-values"><div class="value-row"><span class="value-icon">${icon("shield")}</span><div><strong>Privacy by design</strong><span>Approved access, protected profiles, and 90-day check-in retention.</span></div></div><div class="value-row"><span class="value-icon">${icon("book")}</span><div><strong>Education first</strong><span>Clear explanations and official reference links.</span></div></div><div class="value-row"><span class="value-icon">${icon("activity")}</span><div><strong>Useful offline</strong><span>Private on-device calculation when the network is unavailable.</span></div></div></aside></div><section class="card article-card about-references"><h2>Evidence and references</h2><p>TsekAP’s BMI-for-age calculation uses the WHO 2007 reference for ages 5–19. Health guidance is educational and links back to official sources.</p><div class="reference-list">${referenceLinks()}</div></section>`;
 }
 
 function accountView() {
   const legacy = Boolean(localStorage.getItem(LEGACY_ACCOUNT_KEY)) && !state.profile.migrationCompletedAt;
-  return `<header class="page-header"><div><span class="eyebrow">Account</span><h1 class="page-title">Profile and privacy</h1><p class="page-subtitle">Your cloud profile is protected by Firebase Authentication.</p></div></header><section class="card settings-card"><div class="settings-row"><div><strong>Full name</strong><p>${esc(state.profile.name)}</p></div></div><div class="settings-row"><div><strong>Learner Reference Number</strong><p>${esc(state.profile.lrn)}</p></div></div>${legacy?`<div class="settings-row"><div><strong>Import old device records</strong><p>An encrypted local profile was found on this device.</p></div><button class="button secondary" id="import-local">Import</button></div>`:""}<div class="settings-row"><div><strong>Delete account</strong><p>Permanently remove this profile and all check-ins.</p></div><button class="button danger" id="delete-account">${icon("trash","icon icon-sm")} Delete</button></div></section>`;
+  return `<header class="page-header"><div><span class="eyebrow">Account</span><h1 class="page-title">Profile and privacy</h1><p class="page-subtitle">Your cloud profile is protected by Firebase Authentication.</p></div></header><section class="card settings-card"><div class="settings-row"><div><strong>Full name</strong><p>${esc(state.profile.name)}</p></div></div><div class="settings-row"><div><strong>Learner Reference Number</strong><p>${esc(state.profile.lrn)}</p></div></div><div class="settings-row"><div><strong>Check-in retention</strong><p>Each cloud health check-in is automatically removed 90 days after its measurement date.</p></div><span class="status-badge approved">90 days</span></div><div class="settings-row"><div><strong>Offline calculation</strong><p>Offline results stay in memory only and are not uploaded or saved to this device.</p></div></div>${legacy?`<div class="settings-row"><div><strong>Import old device records</strong><p>An encrypted local profile was found on this device.</p></div><button class="button secondary" id="import-local">Import</button></div>`:""}<div class="settings-row"><div><strong>Delete account</strong><p>Permanently remove this profile and all current check-ins.</p></div><button class="button danger" id="delete-account">${icon("trash","icon icon-sm")} Delete</button></div></section>`;
 }
 
 function bindStudentRoute() {
-  document.querySelector("#checkin-form")?.addEventListener("submit", async (event) => { event.preventDefault(); const data=new FormData(event.currentTarget); const button=event.submitter; button.disabled=true; try { await api("checkins",{method:"POST",body:JSON.stringify({height:data.get("height"),weight:data.get("weight")})}); showToast("Check-in calculated and saved.","success"); state.route="home"; await loadSession(); } catch(error){ fieldError("checkin-error",error.message); button.disabled=false; } });
+  document.querySelector("#checkin-form")?.addEventListener("submit", async (event) => { event.preventDefault(); const data=new FormData(event.currentTarget); const button=event.submitter; button.disabled=true; try { if (!navigator.onLine) { const measuredAt = new Date(); const result = calculateBmi(data.get("height"),data.get("weight"),completedAgeMonths(state.profile.dob,measuredAt),state.profile.sex); state.offlineResult={date:measuredAt.toISOString(),height:Number(data.get("height")),weight:Number(data.get("weight")),...result,offline:true}; state.route="home"; render(); showToast("Calculated offline. This result was not saved.","success"); return; } await api("checkins",{method:"POST",body:JSON.stringify({height:data.get("height"),weight:data.get("weight")})}); state.offlineResult=null; showToast("Check-in calculated and saved for up to 90 days.","success"); state.route="home"; await loadSession(); } catch(error){ fieldError("checkin-error",error.message); button.disabled=false; } });
   document.querySelector("#import-local")?.addEventListener("click", importLegacy);
   document.querySelector("#delete-account")?.addEventListener("click", async () => { if (!confirm("Permanently delete your TsekAP account and every saved check-in?")) return; try { await api("account",{method:"DELETE"}); await signOut(auth); localStorage.removeItem(LEGACY_ACCOUNT_KEY); showToast("Account deleted.","success"); } catch(error){ showToast(error.message,"warning"); } });
 }
