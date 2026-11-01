@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
   browserLocalPersistence, getAuth, getIdTokenResult,
-  onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword,
+  onAuthStateChanged, setPersistence, signInWithEmailAndPassword,
   signOut, updatePassword
 } from "firebase/auth";
 import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckToken } from "firebase/app-check";
@@ -182,7 +182,10 @@ function renderAuth() {
   app.innerHTML = `<main class="auth-page cloud-auth" id="main-content">
     <section class="auth-wrap">
       <div class="auth-story">
-        <div class="auth-logo"><img src="/assets/tsekap-logo-transparent.png" alt="TsekAP logo"><span>TsekAP</span></div>
+        <div class="auth-logo" aria-label="TsekAP Student Health">
+          <div class="auth-logo-mark"><img src="/assets/tsekap-logo-transparent.png" alt=""></div>
+          <div class="auth-wordmark"><strong>Tsek<span>AP</span></strong><small>Student Health</small></div>
+        </div>
         <div class="story-copy"><span class="eyebrow">Student health awareness</span><h1>Know your number.<br>Understand your health.</h1><p>Secure school health monitoring with careful, educational BMI-for-age guidance.</p>
           <div class="story-list"><div class="story-item"><strong>Protected cloud profile</strong><span>Firebase Auth controls access to every record.</span></div><div class="story-item"><strong>Administrator approval</strong><span>New student accounts remain private and pending until reviewed.</span></div></div>
         </div>
@@ -209,7 +212,6 @@ function loginForm(admin) {
     <div class="field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" minlength="8" autocomplete="current-password" required></div>
     <p class="field-error" id="auth-error" role="alert" hidden></p>
     <button class="button primary full" type="submit">${icon("lock","icon icon-sm")} Sign in</button>
-    ${admin ? '<button class="text-button" type="button" id="admin-reset">Forgot administrator password?</button>' : ""}
   </form>`;
 }
 
@@ -258,11 +260,6 @@ function bindAuth() {
     if (box.value === "none") conditionBoxes.forEach((other) => { if (other !== box) other.checked = false; });
     else conditionBoxes.find((other) => other.value === "none").checked = false;
   }));
-  document.querySelector("#admin-reset")?.addEventListener("click", async () => {
-    const email = document.querySelector("#identity").value.trim();
-    if (!email) return fieldError("auth-error", "Enter the administrator email first.");
-    try { await sendPasswordResetEmail(auth, email); showToast("Password reset email sent.", "success"); } catch (error) { fieldError("auth-error", friendlyAuthError(error)); }
-  });
 }
 
 function renderPending() {

@@ -144,7 +144,7 @@ svg { display: block; }
 .password-card { width: min(440px,100%); padding: 24px; text-align: left; }
 .cloud-auth .auth-wrap { max-width: 1180px; }
 .cloud-auth .auth-panel { overflow-y: auto; }
-.auth-logo img { width: 46px; height: 46px; object-fit: contain; }
+.auth-logo img { width: 100%; height: 100%; object-fit: contain; }
 .compact-form { margin-top: 16px; }
 .compact-form .field-grid { gap: 12px; }
 .compact-form .input { min-height: 46px; }
@@ -381,10 +381,12 @@ svg { display: block; }
 .auth-story { position: relative; min-height: 680px; padding: 44px 40px; overflow: hidden; background: linear-gradient(145deg,var(--navy-deep) 0%,var(--navy-mid) 60%,var(--blue) 100%); color: #fff; }
 .auth-story::before { content: ""; position: absolute; width: 430px; height: 430px; border: 1px solid rgba(123,192,255,.18); border-radius: 50%; right: -180px; top: -150px; }
 .auth-story::after { content: ""; position: absolute; width: 260px; height: 260px; border: 1px solid rgba(123,192,255,.14); border-radius: 50%; right: -45px; bottom: -110px; }
-.auth-logo { display: flex; align-items: center; gap: 13px; position: relative; z-index: 1; }
-.auth-logo .brand-mark { width: 58px; height: 58px; }
-.auth-logo strong { font-size: 24px; }
-.auth-logo span { display: block; margin-top: 4px; color: rgba(255,255,255,.73); font-size: 12px; }
+.auth-logo { display: inline-flex; align-items: center; gap: 13px; position: relative; z-index: 1; width: fit-content; }
+.auth-logo-mark { width: 54px; height: 54px; padding: 5px; flex: 0 0 auto; border: 1px solid rgba(135,214,240,.2); border-radius: 17px; background: linear-gradient(145deg,rgba(255,255,255,.11),rgba(255,255,255,.035)); box-shadow: inset 0 1px 0 rgba(255,255,255,.12),0 10px 26px rgba(0,17,31,.18); }
+.auth-wordmark { display: grid; gap: 3px; }
+.auth-wordmark strong { color: #fff; font-size: 24px; line-height: 1; letter-spacing: -.045em; font-weight: 780; }
+.auth-wordmark strong span { color: #87d6f0; }
+.auth-wordmark small { color: rgba(255,255,255,.66); font-size: 9px; line-height: 1; font-weight: 750; letter-spacing: .17em; text-transform: uppercase; }
 .welcome-hero { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0,.94fr) minmax(0,1.06fr); align-items: center; gap: 10px; margin-top: 52px; }
 .welcome-copy h1 { max-width: 100%; margin: 0 0 18px; font-size: clamp(40px,3vw,44px); line-height: .98; letter-spacing: -.05em; }
 .welcome-copy p { max-width: 360px; margin: 0; color: rgba(255,255,255,.78); font-size: 15px; line-height: 1.6; }
@@ -571,7 +573,8 @@ svg { display: block; }
 }
 @media (max-width: 520px) {
   .cloud-auth .auth-story { padding: 22px 20px 26px; }
-  .cloud-auth .auth-logo img { width: 36px; height: 36px; }
+  .cloud-auth .auth-logo-mark { width: 46px; height: 46px; border-radius: 14px; }
+  .cloud-auth .auth-wordmark strong { font-size: 21px; }
   .cloud-auth .story-copy h1 { font-size: 31px; }
   .cloud-auth .auth-panel { padding: 28px 20px 44px; }
   .cloud-auth .compact-form .field-grid { grid-template-columns: 1fr; }
