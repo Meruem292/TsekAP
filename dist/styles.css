@@ -150,7 +150,10 @@ svg { display: block; }
 .compact-form .input { min-height: 46px; }
 .conditions-disclosure { margin: 14px 0; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
 .conditions-disclosure summary { cursor: pointer; color: var(--navy); font-weight: 750; }
-.conditions.compact { margin-top: 12px; grid-template-columns: 1fr 1fr; max-height: 180px; overflow-y: auto; }
+.conditions.compact { margin-top: 12px; grid-template-columns: 1fr 1fr; }
+.check-card { position: relative; display: flex; align-items: center; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: #fbfdff; color: #425e7c; cursor: pointer; }
+.check-card input { width: 18px; height: 18px; margin: 0 10px 0 0; accent-color: var(--blue); }
+.check-card:has(input:checked) { border-color: #83bfd1; background: var(--blue-soft); color: var(--blue-dark); }
 .text-button { width: 100%; margin: 10px 0; border: 0; background: transparent; color: var(--blue-dark); cursor: pointer; font-weight: 750; }
 .header-actions, .row-actions, .dialog-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .admin-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; margin-bottom: 22px; }
@@ -342,7 +345,7 @@ svg { display: block; }
 .textarea { min-height: 96px; resize: vertical; padding-top: 14px; }
 .input:hover, .select:hover, .textarea:hover { border-color: #9dbbd8; }
 .input:focus, .select:focus, .textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(8,127,168,.12); background: #fff; }
-.field-error { color: #b53143; font-size: 12px; font-weight: 650; }
+.field-error { margin: 2px 0; padding: 10px 12px; border-radius: 10px; background: var(--red-soft); color: #a92538; font-size: 12px; font-weight: 700; line-height: 1.4; }
 .field-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 28px; }
 .segment { display: grid; grid-template-columns: repeat(2,1fr); gap: 4px; padding: 4px; border-radius: 14px; background: #edf2f7; }
 .segment label { cursor: pointer; }

@@ -4,16 +4,16 @@ TsekAP is a Firebase-backed student health awareness PWA based on the provided c
 
 ## Run locally
 
-Install dependencies and run the frontend development server:
+Install dependencies and run the complete local app, including Vercel API functions:
 
 ```powershell
 npm install
 npm run dev
 ```
 
-Then open the local URL printed by Vite. To run the Vercel Functions and
-frontend together, use `npm run dev:full`; Vercel starts the `dev` script as
-its frontend process.
+Then open `http://localhost:3000`. Use `npm run dev:ui` only when you are
+working on interface styling and do not need registration, authentication, or
+database APIs.
 
 ## Bootstrap the first administrator
 

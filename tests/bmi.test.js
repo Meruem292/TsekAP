@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateBmi, completedAgeMonths } from "../api/lib/bmi.js";
+import { calculateBmi, completedAgeMonths } from "../server/bmi.js";
 
 test("calculates the known illustrative female result", () => {
   const result = calculateBmi(162, 54.6, 196, "female");

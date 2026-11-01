@@ -1,6 +1,6 @@
 {
   "installCommand": "npm install",
-  "devCommand": "npm run dev",
+  "devCommand": "npm run dev:ui",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "regions": ["sin1"]

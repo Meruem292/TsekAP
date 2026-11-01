@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import {
-  browserLocalPersistence, createUserWithEmailAndPassword, getAuth, getIdTokenResult,
+  browserLocalPersistence, getAuth, getIdTokenResult,
   onAuthStateChanged, sendPasswordResetEmail, setPersistence, signInWithEmailAndPassword,
   signOut, updatePassword
 } from "firebase/auth";
@@ -81,7 +81,12 @@ async function api(path, options = {}) {
   }
   const response = await fetch(`/api/${path}`, { ...options, headers });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "The request could not be completed.");
+  if (!response.ok) {
+    const localApiMissing = response.status === 404 && ["localhost", "127.0.0.1"].includes(location.hostname);
+    throw new Error(data.error || (localApiMissing
+      ? "The local API is not running. Stop this server and restart it with npm run dev."
+      : `The service could not complete this request (${response.status}).`));
+  }
   return data;
 }
 
@@ -202,20 +207,20 @@ function loginForm(admin) {
   return `<form class="auth-form" id="login-form">
     <div class="field"><label for="identity">${admin ? "Administrator email" : "Learner Reference Number (LRN)"}</label><input class="input" id="identity" name="identity" ${admin ? 'type="email" autocomplete="username"' : 'inputmode="numeric" pattern="\\d{12}" maxlength="12" autocomplete="username"'} required></div>
     <div class="field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" minlength="8" autocomplete="current-password" required></div>
-    <p class="field-error" id="auth-error" hidden></p>
+    <p class="field-error" id="auth-error" role="alert" hidden></p>
     <button class="button primary full" type="submit">${icon("lock","icon icon-sm")} Sign in</button>
     ${admin ? '<button class="text-button" type="button" id="admin-reset">Forgot administrator password?</button>' : ""}
   </form>`;
 }
 
 function registrationForm() {
-  const conditionOptions = CONDITIONS.map(([value,label]) => `<label class="check-card"><input type="checkbox" name="conditions" value="${value}" ${value === "none" ? "checked" : ""}><span>${esc(label)}</span></label>`).join("");
+  const conditionOptions = CONDITIONS.map(([value,label]) => `<label class="check-card"><input type="checkbox" name="conditions" value="${value}"><span>${esc(label)}</span></label>`).join("");
   return `<form class="auth-form compact-form" id="register-form">
     <div class="field-grid"><div class="field full"><label for="name">Full name</label><input class="input" id="name" name="name" maxlength="100" required></div>
     <div class="field"><label for="dob">Date of birth</label><input class="input" id="dob" name="dob" type="date" required></div><div class="field"><label for="sex">WHO reference sex</label><select class="input" id="sex" name="sex" required><option value="">Select</option><option value="female">Female</option><option value="male">Male</option></select></div>
-    <div class="field"><label for="lrn">12-digit LRN</label><input class="input" id="lrn" name="lrn" inputmode="numeric" pattern="\\d{12}" maxlength="12" required></div><div class="field"><label for="new-password">Password</label><input class="input" id="new-password" name="password" type="password" minlength="8" autocomplete="new-password" required><span class="field-hint">At least 8 characters with a letter and number.</span></div></div>
+    <div class="field"><label for="lrn">12-digit LRN</label><input class="input" id="lrn" name="lrn" inputmode="numeric" pattern="\\d{12}" maxlength="12" required></div><div class="field"><label for="new-password">Password</label><input class="input" id="new-password" name="password" type="password" minlength="8" pattern="(?=.*[A-Za-z])(?=.*\\d).{8,}" title="Use at least 8 characters with a letter and a number." autocomplete="new-password" required><span class="field-hint">At least 8 characters with a letter and number.</span></div></div>
     <details class="conditions-disclosure"><summary>Health conditions (optional)</summary><div class="conditions compact">${conditionOptions}</div></details>
-    <p class="field-error" id="auth-error" hidden></p><button class="button primary full" type="submit">Submit for approval</button>
+    <p class="field-error" id="auth-error" role="alert" hidden></p><button class="button primary full" type="submit">Submit for approval</button>
   </form>`;
 }
 
@@ -230,14 +235,29 @@ function bindAuth() {
     } catch (error) { fieldError("auth-error", friendlyAuthError(error)); button.disabled = false; }
   });
   document.querySelector("#register-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault(); const data = new FormData(event.currentTarget); const button = event.submitter; button.disabled = true;
+    event.preventDefault(); const data = new FormData(event.currentTarget); const button = event.submitter; const label = button.textContent; button.disabled = true; button.textContent = "Submitting…"; event.currentTarget.setAttribute("aria-busy", "true");
+    let registered = false;
     try {
       const payload = { lrn:data.get("lrn"), password:data.get("password"), profile:{ name:data.get("name"), dob:data.get("dob"), sex:data.get("sex"), conditions:data.getAll("conditions"), otherCondition:"" } };
       await api("auth/register", { method:"POST", body:JSON.stringify(payload) });
+      registered = true;
       await signInWithEmailAndPassword(auth, await studentEmail(payload.lrn), String(payload.password));
       showToast("Registration submitted for administrator approval.", "success");
-    } catch (error) { fieldError("auth-error", friendlyAuthError(error)); button.disabled = false; }
+    } catch (error) {
+      if (registered) {
+        state.authMode = "student-login"; render();
+        fieldError("auth-error", "Registration was saved. Sign in with the LRN and password you just created.");
+      } else {
+        fieldError("auth-error", friendlyAuthError(error)); button.disabled = false; button.textContent = label; event.currentTarget.removeAttribute("aria-busy");
+      }
+    }
   });
+  const conditionBoxes = [...document.querySelectorAll('input[name="conditions"]')];
+  conditionBoxes.forEach((box) => box.addEventListener("change", () => {
+    if (!box.checked) return;
+    if (box.value === "none") conditionBoxes.forEach((other) => { if (other !== box) other.checked = false; });
+    else conditionBoxes.find((other) => other.value === "none").checked = false;
+  }));
   document.querySelector("#admin-reset")?.addEventListener("click", async () => {
     const email = document.querySelector("#identity").value.trim();
     if (!email) return fieldError("auth-error", "Enter the administrator email first.");
@@ -404,7 +424,7 @@ async function importCsv(event){const file=event.target.files[0];if(!file)return
 
 function bindShell(){document.querySelectorAll("[data-route]").forEach((button)=>button.addEventListener("click",()=>navigate(()=>{state.route=button.dataset.route;state.menuOpen=false;render();})));document.querySelector("#menu-button")?.addEventListener("click",()=>{state.menuOpen=!state.menuOpen;render();});bindLogout();}
 function bindLogout(){document.querySelectorAll("[data-logout]").forEach((button)=>button.addEventListener("click",async()=>{await signOut(auth);state.route="home";showToast("You’re logged out.","success");}));}
-function fieldError(id,message){const target=document.querySelector(`#${id}`);if(target){target.textContent=message;target.hidden=false;}}
+function fieldError(id,message){const target=document.querySelector(`#${id}`);if(target){target.setAttribute("role","alert");target.textContent=message;target.hidden=false;target.scrollIntoView({block:"nearest",behavior:reducedMotion.matches?"auto":"smooth"});}}
 function friendlyAuthError(error){const map={"auth/invalid-credential":"The credentials were not recognized.","auth/user-disabled":"This account is disabled. Contact the administrator.","auth/too-many-requests":"Too many attempts. Please wait and try again.","auth/email-already-in-use":"An account already exists."};return map[error.code]||error.message||"Authentication failed.";}
 function firstName(){return state.profile?.name?.trim().split(/\s+/)[0]||"Student";}
 function formatDate(value,style="long"){return new Intl.DateTimeFormat("en-PH",style==="short"?{month:"short",day:"numeric",year:"numeric"}:{day:"numeric",month:"short",year:"numeric"}).format(new Date(value));}
@@ -415,5 +435,8 @@ function downloadBlob(content,name,type){const url=URL.createObjectURL(new Blob(
 
 window.addEventListener("online",()=>showToast("Connection restored.","success"));
 window.addEventListener("offline",()=>showToast("Health records require an internet connection.","warning"));
-if ("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));
+if ("serviceWorker" in navigator) window.addEventListener("load", () => {
+  if (import.meta.env.PROD) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  else navigator.serviceWorker.getRegistrations().then((registrations) => registrations.forEach((registration) => registration.unregister()));
+});
 render();

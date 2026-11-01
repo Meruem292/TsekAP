@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import {
   adminAuth, audit, db, FieldValue, normalizeLrn, rateLimit, sha256, studentEmail,
   verifyAdmin, verifyAppCheck, verifyUser
-} from "./lib/firebase-admin.js";
-import { calculateBmi, completedAgeMonths } from "./lib/bmi.js";
+} from "../server/firebase-admin.js";
+import { calculateBmi, completedAgeMonths } from "../server/bmi.js";
 
 const json = (data, status = 200, headers = {}) => Response.json(data, {
   status,
@@ -33,7 +33,9 @@ function validateProfile(input = {}) {
   if (name.length < 2 || name.length > 100) throw Object.assign(new Error("Enter the student’s full name."), { status: 400 });
   if (!["female", "male"].includes(sex)) throw Object.assign(new Error("Select the sex used by the WHO reference."), { status: 400 });
   if (!Number.isFinite(ageMonths) || ageMonths < 180 || ageMonths > 227) throw Object.assign(new Error("TsekAP currently supports students aged 15 through 18."), { status: 400 });
-  const conditions = Array.isArray(input.conditions) ? input.conditions.slice(0, 12).map(String) : ["none"];
+  const allowedConditions = new Set(["none", "asthma", "heart", "hypertension", "diabetes", "epilepsy", "arthritis", "injury", "allergy", "celiac", "other", "private"]);
+  let conditions = Array.isArray(input.conditions) ? [...new Set(input.conditions.map(String))].filter((value) => allowedConditions.has(value)).slice(0, 12) : [];
+  if (conditions.includes("none") && conditions.length > 1) conditions = conditions.filter((value) => value !== "none");
   return { name, dob, sex, conditions, otherCondition: String(input.otherCondition || "").trim().slice(0, 160) };
 }
 

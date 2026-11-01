@@ -3,6 +3,7 @@ import { getAppCheck } from "firebase-admin/app-check";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
 
 function credential() {
   if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
@@ -11,6 +12,9 @@ function credential() {
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
     });
+  }
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
+    return cert(JSON.parse(readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH, "utf8")));
   }
   return applicationDefault();
 }

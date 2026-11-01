@@ -1,4 +1,4 @@
-const CACHE = "tsekap-cloud-v2";
+const CACHE = "tsekap-cloud-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -24,6 +24,22 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  const updateFirst = event.request.mode === "navigate" || ["/app.js", "/styles.css", "/index.html"].includes(url.pathname);
+  if (updateFirst) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok && response.type === "basic") {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const network = fetch(event.request)
