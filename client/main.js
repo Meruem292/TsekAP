@@ -49,7 +49,9 @@ const icon = (name, cls = "icon") => {
     check:'<path d="m5 12 4 4L19 6"/>', info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
     book:'<path d="M3 4.5A3.5 3.5 0 0 1 6.5 1H11v18H6.5A3.5 3.5 0 0 0 3 22.5Z"/><path d="M21 4.5A3.5 3.5 0 0 0 17.5 1H13v18h4.5a3.5 3.5 0 0 1 3.5 3.5Z"/>',
     download:'<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>', trash:'<path d="M3 6h18M8 6V3h8v3M19 6l-1 15H6L5 6"/>',
-    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', lock:'<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>'
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', lock:'<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    eye:'<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.7"/>',
+    eyeOff:'<path d="m3 3 18 18M10.6 6.1A10.7 10.7 0 0 1 12 6c6 0 9.5 6 9.5 6a15 15 0 0 1-2.1 2.8M6.2 6.2C3.8 8 2.5 12 2.5 12s3.5 6 9.5 6c1.7 0 3.2-.5 4.5-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'
   };
   return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.info}</svg>`;
 };
@@ -60,6 +62,28 @@ function showToast(message, kind = "info") {
   toast.innerHTML = `${icon(kind === "success" ? "check" : "info", "icon icon-sm")}<span>${esc(message)}</span>`;
   toastRegion.append(toast);
   setTimeout(() => toast.remove(), 4200);
+}
+
+function bindPasswordToggles(root = document) {
+  root.querySelectorAll("[data-password-toggle]").forEach((button) => {
+    if (button.dataset.bound === "true") return;
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => {
+      const control = button.closest(".password-control");
+      const input = control?.querySelector("input");
+      if (!input) return;
+      const willReveal = input.type === "password";
+      input.type = willReveal ? "text" : "password";
+      button.innerHTML = icon(willReveal ? "eyeOff" : "eye", "icon icon-sm");
+      button.setAttribute("aria-label", willReveal ? "Hide password" : "Show password");
+      button.setAttribute("aria-pressed", String(willReveal));
+      control.classList.toggle("is-visible", willReveal);
+      control.classList.remove("is-switching");
+      void control.offsetWidth;
+      control.classList.add("is-switching");
+      setTimeout(() => control.classList.remove("is-switching"), 360);
+    });
+  });
 }
 
 async function hashLrn(lrn) {
@@ -209,7 +233,7 @@ function renderAuth() {
 function loginForm(admin) {
   return `<form class="auth-form" id="login-form">
     <div class="field"><label for="identity">${admin ? "Administrator email" : "Learner Reference Number (LRN)"}</label><input class="input" id="identity" name="identity" ${admin ? 'type="email" autocomplete="username"' : 'inputmode="numeric" pattern="\\d{12}" maxlength="12" autocomplete="username"'} required></div>
-    <div class="field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" minlength="8" autocomplete="current-password" required></div>
+    <div class="field"><label for="password">Password</label><div class="password-control"><input class="input" id="password" name="password" type="password" minlength="8" autocomplete="current-password" required><button class="password-toggle" type="button" data-password-toggle aria-label="Show password" aria-pressed="false">${icon("eye","icon icon-sm")}</button></div></div>
     <p class="field-error" id="auth-error" role="alert" hidden></p>
     <button class="button primary full" type="submit">${icon("lock","icon icon-sm")} Sign in</button>
   </form>`;
@@ -220,13 +244,14 @@ function registrationForm() {
   return `<form class="auth-form compact-form" id="register-form">
     <div class="field-grid"><div class="field full"><label for="name">Full name</label><input class="input" id="name" name="name" maxlength="100" required></div>
     <div class="field"><label for="dob">Date of birth</label><input class="input" id="dob" name="dob" type="date" required></div><div class="field"><label for="sex">WHO reference sex</label><select class="input" id="sex" name="sex" required><option value="">Select</option><option value="female">Female</option><option value="male">Male</option></select></div>
-    <div class="field"><label for="lrn">12-digit LRN</label><input class="input" id="lrn" name="lrn" inputmode="numeric" pattern="\\d{12}" maxlength="12" required></div><div class="field"><label for="new-password">Password</label><input class="input" id="new-password" name="password" type="password" minlength="8" pattern="(?=.*[A-Za-z])(?=.*\\d).{8,}" title="Use at least 8 characters with a letter and a number." autocomplete="new-password" required><span class="field-hint">At least 8 characters with a letter and number.</span></div></div>
+    <div class="field"><label for="lrn">12-digit LRN</label><input class="input" id="lrn" name="lrn" inputmode="numeric" pattern="\\d{12}" maxlength="12" required></div><div class="field"><label for="new-password">Password</label><div class="password-control"><input class="input" id="new-password" name="password" type="password" minlength="8" pattern="(?=.*[A-Za-z])(?=.*\\d).{8,}" title="Use at least 8 characters with a letter and a number." autocomplete="new-password" required><button class="password-toggle" type="button" data-password-toggle aria-label="Show password" aria-pressed="false">${icon("eye","icon icon-sm")}</button></div><span class="field-hint">At least 8 characters with a letter and number.</span></div></div>
     <details class="conditions-disclosure"><summary>Health conditions (optional)</summary><div class="conditions compact">${conditionOptions}</div></details>
     <p class="field-error" id="auth-error" role="alert" hidden></p><button class="button primary full" type="submit">Submit for approval</button>
   </form>`;
 }
 
 function bindAuth() {
+  bindPasswordToggles();
   document.querySelectorAll("[data-auth-mode]").forEach((button) => button.addEventListener("click", () => navigate(() => { state.authMode = button.dataset.authMode; render(); })));
   document.querySelector("#login-form")?.addEventListener("submit", async (event) => {
     event.preventDefault(); const data = new FormData(event.currentTarget); const button = event.submitter; button.disabled = true;
@@ -270,7 +295,8 @@ function renderPending() {
 }
 
 function renderChangePassword() {
-  app.innerHTML = `<main class="center-screen" id="main-content"><div class="pending-icon">${icon("lock","icon icon-lg")}</div><span class="eyebrow">Account security</span><h1>Create your own password</h1><p>Your administrator issued a temporary password. Replace it before continuing.</p><form class="card password-card" id="change-password-form"><div class="field"><label for="fresh-password">New password</label><input class="input" id="fresh-password" name="password" type="password" minlength="8" required></div><p class="field-error" id="password-error" hidden></p><button class="button primary full">Update password</button></form></main>`;
+  app.innerHTML = `<main class="center-screen" id="main-content"><div class="pending-icon">${icon("lock","icon icon-lg")}</div><span class="eyebrow">Account security</span><h1>Create your own password</h1><p>Your administrator issued a temporary password. Replace it before continuing.</p><form class="card password-card" id="change-password-form"><div class="field"><label for="fresh-password">New password</label><div class="password-control"><input class="input" id="fresh-password" name="password" type="password" minlength="8" autocomplete="new-password" required><button class="password-toggle" type="button" data-password-toggle aria-label="Show password" aria-pressed="false">${icon("eye","icon icon-sm")}</button></div></div><p class="field-error" id="password-error" hidden></p><button class="button primary full">Update password</button></form></main>`;
+  bindPasswordToggles();
   document.querySelector("#change-password-form").addEventListener("submit", async (event) => { event.preventDefault(); const password = new FormData(event.currentTarget).get("password"); try { await updatePassword(auth.currentUser, password); await api("account/change-password",{method:"POST",body:JSON.stringify({password})}); showToast("Password updated.","success"); await loadSession(); } catch(error){ fieldError("password-error",friendlyAuthError(error)); } });
 }
 
@@ -410,7 +436,8 @@ async function showStudentDetail(student) {
 }
 
 function showCreateStudent() {
-  const dialog=document.createElement("dialog"); dialog.className="detail-dialog"; dialog.innerHTML=`<form id="admin-create-form"><button type="button" class="dialog-close" aria-label="Close">${icon("x")}</button><span class="eyebrow">Administrator enrollment</span><h2>Add a student</h2><div class="field-grid"><div class="field full"><label>Full name<input class="input" name="name" required></label></div><div class="field"><label>LRN<input class="input" name="lrn" pattern="\\d{12}" maxlength="12" required></label></div><div class="field"><label>Date of birth<input class="input" name="dob" type="date" required></label></div><div class="field"><label>Reference sex<select class="input" name="sex" required><option value="female">Female</option><option value="male">Male</option></select></label></div><div class="field"><label>Temporary password<input class="input" name="password" placeholder="Leave blank to generate"></label></div></div><p class="field-error" id="create-error" hidden></p><div class="field-actions"><button type="button" class="button ghost dialog-cancel">Cancel</button><button class="button primary">Create approved account</button></div></form>`;document.body.append(dialog);dialog.showModal();
+  const dialog=document.createElement("dialog"); dialog.className="detail-dialog"; dialog.innerHTML=`<form id="admin-create-form"><button type="button" class="dialog-close" aria-label="Close">${icon("x")}</button><span class="eyebrow">Administrator enrollment</span><h2>Add a student</h2><div class="field-grid"><div class="field full"><label>Full name<input class="input" name="name" required></label></div><div class="field"><label>LRN<input class="input" name="lrn" pattern="\\d{12}" maxlength="12" required></label></div><div class="field"><label>Date of birth<input class="input" name="dob" type="date" required></label></div><div class="field"><label>Reference sex<select class="input" name="sex" required><option value="female">Female</option><option value="male">Male</option></select></label></div><div class="field"><label for="admin-temp-password">Temporary password</label><div class="password-control"><input class="input" id="admin-temp-password" name="password" type="password" autocomplete="new-password" placeholder="Leave blank to generate"><button class="password-toggle" type="button" data-password-toggle aria-label="Show password" aria-pressed="false">${icon("eye","icon icon-sm")}</button></div></div></div><p class="field-error" id="create-error" hidden></p><div class="field-actions"><button type="button" class="button ghost dialog-cancel">Cancel</button><button class="button primary">Create approved account</button></div></form>`;document.body.append(dialog);dialog.showModal();
+  bindPasswordToggles(dialog);
   dialog.querySelectorAll(".dialog-close,.dialog-cancel").forEach((button)=>button.addEventListener("click",()=>dialog.close()));
   dialog.addEventListener("close",()=>dialog.remove());
   dialog.querySelector("form").addEventListener("submit",async(event)=>{event.preventDefault();const data=new FormData(event.currentTarget);try{const result=await api("admin/users",{method:"POST",body:JSON.stringify({lrn:data.get("lrn"),password:data.get("password")||undefined,profile:{name:data.get("name"),dob:data.get("dob"),sex:data.get("sex"),conditions:["none"]},status:"approved"})});prompt("Copy this temporary password. It will not be shown again.",result.temporaryPassword);dialog.close();await loadAdmin();render();showToast("Approved student account created.","success");}catch(error){fieldError("create-error",error.message);}});

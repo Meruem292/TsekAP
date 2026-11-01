@@ -345,6 +345,19 @@ svg { display: block; }
 .textarea { min-height: 96px; resize: vertical; padding-top: 14px; }
 .input:hover, .select:hover, .textarea:hover { border-color: #9dbbd8; }
 .input:focus, .select:focus, .textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(8,127,168,.12); background: #fff; }
+.password-control { position: relative; border-radius: 14px; isolation: isolate; }
+.password-control .input { padding-right: 54px; }
+.password-toggle { position: absolute; z-index: 2; top: 50%; right: 7px; width: 40px; height: 40px; display: grid; place-items: center; transform: translateY(-50%); border: 0; border-radius: 11px; background: transparent; color: #6c8199; cursor: pointer; transition: color .2s ease,background .2s ease,transform .2s cubic-bezier(.2,.8,.2,1); }
+.password-toggle:hover { background: var(--blue-soft); color: var(--blue-dark); }
+.password-toggle:active { transform: translateY(-50%) scale(.9); }
+.password-toggle:focus-visible { outline: 3px solid rgba(8,127,168,.28); outline-offset: 1px; }
+.password-toggle .icon { transition: transform .28s cubic-bezier(.2,.8,.2,1),opacity .18s ease; }
+.password-control.is-visible .password-toggle { color: var(--blue); background: rgba(230,244,247,.72); }
+.password-control.is-visible .password-toggle .icon { transform: rotate(-8deg) scale(1.04); }
+.password-control.is-switching { animation: password-field-switch .34s cubic-bezier(.2,.8,.2,1); }
+.password-control.is-switching::after { content: ""; position: absolute; z-index: 1; inset: 1px; pointer-events: none; border-radius: 13px; border: 1px solid rgba(8,127,168,.42); animation: password-field-ring .34s ease-out both; }
+@keyframes password-field-switch { 0% { transform: scale(1); } 45% { transform: scale(.992); } 100% { transform: scale(1); } }
+@keyframes password-field-ring { 0% { opacity: 0; transform: scale(.985); } 40% { opacity: 1; } 100% { opacity: 0; transform: scale(1.015); } }
 .field-error { margin: 2px 0; padding: 10px 12px; border-radius: 10px; background: var(--red-soft); color: #a92538; font-size: 12px; font-weight: 700; line-height: 1.4; }
 .field-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 28px; }
 .segment { display: grid; grid-template-columns: repeat(2,1fr); gap: 4px; padding: 4px; border-radius: 14px; background: #edf2f7; }
