@@ -1,20 +1,32 @@
 # TsekAP
 
-TsekAP is a static, offline-capable student health awareness PWA based on the provided capstone brief. It calculates BMI and classifies it with the WHO 2007 BMI-for-age reference for students aged 15–18, using completed age in months and sex-specific LMS data.
+TsekAP is a Firebase-backed student health awareness PWA based on the provided capstone brief. It calculates BMI and classifies it with the WHO 2007 BMI-for-age reference for students aged 15–18, using completed age in months and sex-specific LMS data.
 
 ## Run locally
 
-Serve the `dist` directory with any local static server. For example:
+Install dependencies and run the frontend development server:
 
 ```powershell
-python -m http.server 4173 --directory dist
+npm install
+npm run dev
 ```
 
-Then open `http://localhost:4173`.
+Then open the local URL printed by Vite. To run the Vercel Functions and
+frontend together, use `npm run dev:full`; Vercel starts the `dev` script as
+its frontend process.
+
+## Bootstrap the first administrator
+
+Download a Firebase service-account JSON outside this repository, set
+`FIREBASE_SERVICE_ACCOUNT_PATH` to its local path, and run
+`npm run bootstrap:admin`. The script creates or updates the configured
+administrator, assigns the server-only custom claim, and creates the protected
+Firestore profile. Use the administrator login screen's reset action to send
+the initial password-setup email.
 
 ## Privacy model
 
-The prototype stores one profile and up to three months of check-ins on the current device. The payload is encrypted with AES-GCM using a key derived from the student's LRN passcode. There is no online database in this static build, and the app never sends profile or health-condition data to a server.
+Approved profiles and check-ins are protected by Firebase Authentication, Firestore Security Rules, and trusted Vercel Functions. New student registrations remain pending until an administrator approves them. The legacy AES-GCM local format is recognized only for an explicit one-time import after cloud sign-in.
 
 ## Welcome avatar
 
