@@ -32,7 +32,11 @@ Approved profiles and check-ins are protected by Firebase Authentication, Firest
 
 Students begin at a dedicated welcome screen, acknowledge the educational disclaimer, and then sign in or request an account. The PWA shell, WHO LMS reference data, BMI calculator, and educational recommendation logic are bundled for limited offline use. Offline calculations remain in memory only: they are not written to device storage or uploaded to Firestore.
 
-Recommendations adapt to the result category and the optional health conditions in the student's profile. They remain general educational guidance and link to official WHO, Philippine DOH, and CDC sources.
+Recommendations adapt to the result category and the optional health conditions in the student's profile. The data-driven catalog contains 14 movement and 12 Filipino food ideas, filters unsuitable matches before ranking, and shows the three safest matches before an optional expanded list. It remains general educational guidance and links to official WHO, Philippine DOH, CDC, ADA, AAP, AHA, NIDDK, NHLBI, and Epilepsy Foundation sources.
+
+Exercise and food guidance is presented with a project-local ImageGen illustration set in `dist/assets/recommendations`. The condition logic prioritizes safety notes for asthma, diabetes, cardiovascular or seizure conditions, joint conditions or injury, and food allergy or celiac needs. These examples do not replace an individualized activity, treatment, or nutrition plan.
+
+Each recommendation illustration also has a reproducible five-second looping MP4 generated with `npm run assets:animate`. The app displays muted inline video and automatically falls back to the original still image when the user has enabled reduced-motion preferences. Recommendation media is cached only after it is viewed instead of being included in the initial PWA installation, keeping the larger library from delaying first load.
 
 ## Welcome avatar
 

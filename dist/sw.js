@@ -1,4 +1,4 @@
-const CACHE = "tsekap-cloud-v4";
+const CACHE = "tsekap-cloud-v7";
 const APP_SHELL = [
   "./",
   "./index.html",

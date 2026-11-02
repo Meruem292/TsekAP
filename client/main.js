@@ -6,7 +6,7 @@ import {
 } from "firebase/auth";
 import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckToken } from "firebase/app-check";
 import { calculateBmi, completedAgeMonths } from "../shared/bmi.js";
-import { HEALTH_REFERENCES, recommendationsFor } from "../shared/recommendations.js";
+import { HEALTH_REFERENCES, recommendationPreview, wellnessPlanFor } from "../shared/recommendations.js";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDMtwiGuNlBFkhpUMwIwImSKaLpK4WuaSo",
@@ -37,6 +37,7 @@ const state = {
   firebaseUser: null, profile: null, checkins: [], claims: {}, route: "home", menuOpen: false,
   authMode: "student-login", loading: true, adminStudents: [], auditLogs: [], adminSearch: "",
   selectedStudent: null, selectedCheckins: [], offlineResult: null,
+  recommendationExpanded: { exercise: false, food: false },
   publicStep: sessionStorage.getItem("tsekap.disclaimer-acknowledged") ? "auth" : "welcome"
 };
 
@@ -260,9 +261,11 @@ function renderOfflineCalculator() {
     event.preventDefault(); const data = new FormData(event.currentTarget);
     try {
       const result = calculateBmi(data.get("height"), data.get("weight"), completedAgeMonths(data.get("dob"), new Date()), data.get("sex"));
-      const guidance = recommendationsFor(result.classification);
+      const plan = wellnessPlanFor(result.classification);
+      const guidance = [plan.exercise[0], plan.food[0]];
       document.querySelector("#offline-error").hidden = true;
-      document.querySelector("#offline-result").innerHTML = `<section class="offline-result"><span class="eyebrow">Your educational result</span><div class="offline-result-number">${result.bmi.toFixed(1)}</div><span class="classification-pill ${tone(result.classification)}">${esc(result.classification)}</span><p>WHO BMI-for-age z-score: <strong>${signed(result.z)}</strong></p><div class="mini-guidance">${guidance.slice(0,2).map((item)=>`<div><strong>${esc(item.title)}</strong><span>${esc(item.body)}</span></div>`).join("")}</div><p class="micro-note">This calculation is not saved. It is a screening result, not a diagnosis.</p></section>`;
+      document.querySelector("#offline-result").innerHTML = `<section class="offline-result"><span class="eyebrow">Your educational result</span><div class="offline-result-number">${result.bmi.toFixed(1)}</div><span class="classification-pill ${tone(result.classification)}">${esc(result.classification)}</span><p>WHO BMI-for-age z-score: <strong>${signed(result.z)}</strong></p><div class="offline-guidance-grid">${guidance.map((item)=>`<article>${animatedMedia(item)}<div><span class="recommendation-kind">${item.kind}</span><strong>${esc(item.title)}</strong><p>${esc(item.body)}</p></div></article>`).join("")}</div><p class="micro-note">This calculation is not saved. It is a screening result, not a diagnosis.</p></section>`;
+      manageRecommendationVideos();
     } catch (error) { fieldError("offline-error", error.message); }
   });
 }
@@ -398,7 +401,7 @@ function studentHome() {
   if (!latest) return `<header class="page-header"><div><span class="eyebrow">Student dashboard</span><h1 class="page-title">Welcome, ${esc(firstName())}</h1><p class="page-subtitle">Your protected cloud profile is ready.</p></div></header><section class="card empty-state"><div class="empty-icon">${icon("plus","icon icon-lg")}</div><h2>Ready for your first check-in?</h2><p>Enter your measured height and weight to calculate an educational WHO BMI-for-age result.</p><button class="button primary" data-route="measurement">Start a check-in</button></section>`;
   const z = Number(latest.z);
   const marker = Math.max(0, Math.min(100, ((z + 3) / 6) * 100));
-  const guidance = recommendationsFor(latest.classification, state.profile.conditions);
+  const plan = wellnessPlanFor(latest.classification, state.profile.conditions);
   return `<header class="page-header"><div><span class="eyebrow">Student dashboard</span><h1 class="page-title">Welcome, ${esc(firstName())}</h1><p class="page-subtitle">Here is your latest protected health check-in.</p></div><button class="button primary" data-route="measurement">${icon("plus","icon icon-sm")} New check-in</button></header>
   ${latest.offline ? `<div class="notice warning offline-banner">${icon("info","icon icon-sm")}<span>This result was calculated offline and was not saved to your cloud history.</span></div>` : ""}
   <div class="dashboard-grid">
@@ -407,8 +410,36 @@ function studentHome() {
       <div class="range-wrap"><div class="range-meta"><span>WHO BMI-for-age z-score</span><strong>${signed(latest.z)}</strong></div><div class="range-track" aria-hidden="true"><span class="range-marker" style="left:${marker.toFixed(2)}%"></span></div><div class="range-labels" aria-hidden="true"><span>−3</span><span>−2</span><span>+1</span><span>+2</span><span>+3</span></div><div class="legend"><span><i class="swatch low"></i>Thinness</span><span><i class="swatch expected"></i>Expected range</span><span><i class="swatch elevated"></i>Overweight</span><span><i class="swatch high"></i>Obesity</span></div></div>
     </section>
     <section class="card measurements" aria-labelledby="measurements-title"><span class="eyebrow">Latest check-in</span><h2 class="section-title" id="measurements-title">Your measurements</h2><div class="data-list"><div class="data-row">${icon("ruler","icon icon-sm")}<span>Height</span><strong>${Number(latest.height).toFixed(1)} cm</strong></div><div class="data-row">${icon("scale","icon icon-sm")}<span>Weight</span><strong>${Number(latest.weight).toFixed(1)} kg</strong></div><div class="data-row">${icon("calendar","icon icon-sm")}<span>Checked</span><strong>${formatDate(latest.date)}</strong></div></div><p class="micro-note">${icon(latest.offline?"info":"shield","icon icon-sm")} ${latest.offline?"Not saved":"Protected for up to 90 days"}</p></section>
-    <section class="card recommend-card"><span class="eyebrow">Guidance for your profile</span><h2 class="section-title">Supportive next steps</h2><div class="recommend-layout"><div class="tips">${guidance.map((item)=>`<div class="tip"><div class="tip-icon">${icon(item.icon)}</div><div><strong>${esc(item.title)}</strong><span>${esc(item.body)}</span><a class="tip-source" href="${item.href}" target="_blank" rel="noopener">${esc(item.source)} ↗</a></div></div>`).join("")}</div><div class="wellness-motif"><div class="rings" aria-hidden="true"></div><div class="motif-copy"><strong>Guidance adapts carefully.</strong><br>It considers the BMI category and optional conditions in your profile, but never replaces professional advice.</div></div></div></section>
+    <section class="card recommend-card"><div class="recommend-heading"><div><span class="eyebrow">Guidance for your profile</span><h2 class="section-title">Movement and food that fit your result</h2><p>Safer matches appear first based on your BMI-for-age category and optional health conditions.</p></div><span class="personalized-badge">${icon("shield","icon icon-sm")} Personalized carefully</span></div><div class="recommend-sections">${recommendationSection("exercise", plan.exercise)}${recommendationSection("food", plan.food)}</div>${plan.cautions.length?`<div class="recommend-cautions">${icon("info","icon icon-sm")}<div><strong>Use extra care for your profile</strong>${plan.cautions.map((note)=>`<p>${esc(note)}</p>`).join("")}</div></div>`:""}<p class="recommend-disclaimer">These are educational examples, not a prescription. The WHO activity target is a gradual long-term goal, not a requirement to complete immediately. Stop activity for concerning symptoms and follow guidance from a qualified healthcare professional.</p></section>
   </div>`;
+}
+
+function recommendationSection(kind, items) {
+  const expanded = state.recommendationExpanded[kind];
+  const { visible, remaining } = recommendationPreview(items, expanded);
+  const isExercise = kind === "exercise";
+  return `<section class="recommendation-section" aria-labelledby="${kind}-ideas-title"><div class="recommend-section-title"><span class="recommend-section-icon ${kind}">${icon(isExercise ? "activity" : "leaf","icon icon-sm")}</span><div><h3 id="${kind}-ideas-title">${isExercise ? "Exercise ideas" : "Food ideas"}</h3><p>${isExercise ? "Start comfortably and build gradually." : "Support growth with balance and variety."}</p></div></div><div class="recommend-card-grid">${visible.map(recommendationCard).join("")}</div>${remaining ? `<button class="recommend-more-button" type="button" data-recommend-more="${kind}" aria-expanded="${expanded}">${expanded ? "Show fewer ideas" : `View ${remaining} more safe ${isExercise ? "activities" : "food ideas"}`}<span aria-hidden="true">${expanded ? "↑" : "↓"}</span></button>` : ""}</section>`;
+}
+
+function recommendationCard(item) {
+  return `<article class="recommendation-item">${animatedMedia(item)}<div class="recommendation-content"><div class="recommendation-meta"><span class="recommendation-kind">${item.kind === "exercise" ? "Movement" : "Food"}</span><span>${esc(item.intensity)}</span><span>${esc(item.impact)}</span></div><h4>${esc(item.title)}</h4><p>${esc(item.body)}</p><div class="recommendation-reason"><strong>Why this fits</strong><span>${esc(item.why)}</span></div><div class="recommendation-safety">${icon("shield","icon icon-sm")}<span>${esc(item.safety)}</span></div><a class="tip-source" href="${item.href}" target="_blank" rel="noopener">${esc(item.source)} ↗</a></div></article>`;
+}
+
+function animatedMedia(item) {
+  if (reducedMotion.matches) return `<img src="${item.image}" alt="" loading="lazy" width="360" height="270">`;
+  return `<video class="recommendation-video" autoplay muted loop playsinline disablepictureinpicture preload="metadata" poster="${item.image}" aria-hidden="true" tabindex="-1" width="360" height="270"><source src="${item.video}" type="video/mp4"></video>`;
+}
+
+function manageRecommendationVideos() {
+  const videos = [...document.querySelectorAll(".recommendation-video")];
+  if (!videos.length || !("IntersectionObserver" in window)) return;
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) entry.target.play().catch(() => {});
+      else entry.target.pause();
+    }
+  }, { rootMargin: "180px 0px", threshold: .05 });
+  videos.forEach((video) => observer.observe(video));
 }
 
 function measurementView() {
@@ -447,6 +478,22 @@ function accountView() {
 }
 
 function bindStudentRoute() {
+  manageRecommendationVideos();
+  document.querySelectorAll("[data-recommend-more]").forEach((button) => button.addEventListener("click", () => {
+    const kind = button.dataset.recommendMore;
+    const section = button.closest(".recommendation-section");
+    const top = section?.getBoundingClientRect().top || 0;
+    const update = () => {
+      state.recommendationExpanded[kind] = !state.recommendationExpanded[kind];
+      render();
+      const updated = document.querySelector(`[data-recommend-more="${kind}"]`);
+      const updatedSection = updated?.closest(".recommendation-section");
+      if (updatedSection) window.scrollBy({ top: updatedSection.getBoundingClientRect().top - top, behavior: "instant" });
+      updated?.focus({ preventScroll: true });
+    };
+    if (!reducedMotion.matches && document.startViewTransition) document.startViewTransition(update);
+    else update();
+  }));
   document.querySelector("#checkin-form")?.addEventListener("submit", async (event) => { event.preventDefault(); const data=new FormData(event.currentTarget); const button=event.submitter; button.disabled=true; try { if (!navigator.onLine) { const measuredAt = new Date(); const result = calculateBmi(data.get("height"),data.get("weight"),completedAgeMonths(state.profile.dob,measuredAt),state.profile.sex); state.offlineResult={date:measuredAt.toISOString(),height:Number(data.get("height")),weight:Number(data.get("weight")),...result,offline:true}; state.route="home"; render(); showToast("Calculated offline. This result was not saved.","success"); return; } await api("checkins",{method:"POST",body:JSON.stringify({height:data.get("height"),weight:data.get("weight")})}); state.offlineResult=null; showToast("Check-in calculated and saved for up to 90 days.","success"); state.route="home"; await loadSession(); } catch(error){ fieldError("checkin-error",error.message); button.disabled=false; } });
   document.querySelector("#import-local")?.addEventListener("click", importLegacy);
   document.querySelector("#delete-account")?.addEventListener("click", async () => { if (!confirm("Permanently delete your TsekAP account and every saved check-in?")) return; try { await api("account",{method:"DELETE"}); await signOut(auth); localStorage.removeItem(LEGACY_ACCOUNT_KEY); showToast("Account deleted.","success"); } catch(error){ showToast(error.message,"warning"); } });
