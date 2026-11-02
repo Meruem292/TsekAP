@@ -26,11 +26,6 @@ const appCheck = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const LEGACY_ACCOUNT_KEY = "tsekap.encrypted-account.v1";
-const SPLASH_SEEN_KEY = "tsekap.splash.seen.v1";
-const splashWasSeen = (() => {
-  try { return localStorage.getItem(SPLASH_SEEN_KEY) === "true"; }
-  catch { return false; }
-})();
 const CONDITIONS = [
   ["none", "No known health conditions"], ["asthma", "Asthma"], ["heart", "Heart condition"],
   ["hypertension", "Hypertension"], ["diabetes", "Diabetes"], ["epilepsy", "Epilepsy / seizure disorders"],
@@ -43,7 +38,7 @@ const state = {
   authMode: "student-login", loading: true, adminStudents: [], auditLogs: [], adminSearch: "",
   selectedStudent: null, selectedCheckins: [], offlineResult: null,
   recommendationExpanded: { exercise: false, food: false },
-  splashVisible: !splashWasSeen,
+  splashVisible: true,
   publicStep: sessionStorage.getItem("tsekap.disclaimer-acknowledged") ? "auth" : "welcome"
 };
 
@@ -248,9 +243,21 @@ function finishSplash() {
   splashCompleting = true;
   clearTimeout(splashTimer);
   app.querySelector(".splash-media")?.pause?.();
-  try { localStorage.setItem(SPLASH_SEEN_KEY, "true"); } catch {}
   navigate(() => {
     state.splashVisible = false;
+    render();
+  });
+}
+
+function prepareLandingSplash() {
+  splashCompleting = false;
+  state.publicStep = "welcome";
+  state.splashVisible = true;
+}
+
+function showLandingSplash() {
+  navigate(() => {
+    prepareLandingSplash();
     render();
   });
 }
@@ -297,13 +304,13 @@ function renderDisclaimer() {
   const agreement = document.querySelector("#disclaimer-agreement");
   const accept = document.querySelector("#accept-disclaimer");
   agreement.addEventListener("change", () => { accept.disabled = !agreement.checked; });
-  document.querySelector("#disclaimer-back").addEventListener("click", () => navigate(() => { state.publicStep = "welcome"; render(); }));
+  document.querySelector("#disclaimer-back").addEventListener("click", showLandingSplash);
   accept.addEventListener("click", () => navigate(() => { sessionStorage.setItem("tsekap.disclaimer-acknowledged", "true"); state.publicStep = "auth"; state.authMode = "student-login"; render(); }));
 }
 
 function renderOfflineCalculator() {
   app.innerHTML = `<main class="auth-page" id="main-content"><section class="disclaimer"><article class="card offline-calculator"><div class="disclaimer-hero"><div class="disclaimer-icon">${icon("activity","icon icon-lg")}</div><span class="eyebrow">Private on-device calculation</span><h1>Offline BMI-for-age</h1><p>Calculate an educational result without signing in. Nothing entered here is saved or uploaded.</p></div><form class="disclaimer-body" id="offline-form"><div class="field-grid"><div class="field"><label for="offline-dob">Date of birth</label><input class="input" id="offline-dob" name="dob" type="date" required></div><div class="field"><label for="offline-sex">WHO reference sex</label><select class="input" id="offline-sex" name="sex" required><option value="">Select</option><option value="female">Female</option><option value="male">Male</option></select></div><div class="field"><label for="offline-height">Height (cm)</label><input class="input" id="offline-height" name="height" type="number" min="100" max="220" step=".1" required></div><div class="field"><label for="offline-weight">Weight (kg)</label><input class="input" id="offline-weight" name="weight" type="number" min="25" max="200" step=".1" required></div></div><div id="offline-result" aria-live="polite"></div><p class="field-error" id="offline-error" hidden></p><div class="field-actions"><button class="button ghost" type="button" id="offline-back">Back</button><button class="button primary" type="submit">Calculate result</button></div></form></article></section></main>`;
-  document.querySelector("#offline-back").addEventListener("click", () => navigate(() => { state.publicStep = "welcome"; render(); }));
+  document.querySelector("#offline-back").addEventListener("click", showLandingSplash);
   document.querySelector("#offline-form").addEventListener("submit", (event) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
     try {
@@ -345,7 +352,7 @@ function renderCloudAuth() {
     </section>
   </main>`;
   bindAuth();
-  document.querySelector("#auth-home").addEventListener("click", () => navigate(() => { state.publicStep = "welcome"; render(); }));
+  document.querySelector("#auth-home").addEventListener("click", showLandingSplash);
 }
 
 function loginForm(admin) {
@@ -575,7 +582,7 @@ function bindStudentRoute() {
   }));
   document.querySelector("#checkin-form")?.addEventListener("submit", async (event) => { event.preventDefault(); const data=new FormData(event.currentTarget); const button=event.submitter; button.disabled=true; try { if (!navigator.onLine) { const measuredAt = new Date(); const result = calculateBmi(data.get("height"),data.get("weight"),completedAgeMonths(state.profile.dob,measuredAt),state.profile.sex); state.offlineResult={date:measuredAt.toISOString(),height:Number(data.get("height")),weight:Number(data.get("weight")),...result,offline:true}; state.route="home"; render(); showToast("Calculated offline. This result was not saved.","success"); return; } await api("checkins",{method:"POST",body:JSON.stringify({height:data.get("height"),weight:data.get("weight")})}); state.offlineResult=null; showToast("Check-in calculated and saved for up to 90 days.","success"); state.route="home"; await loadSession(); } catch(error){ fieldError("checkin-error",error.message); button.disabled=false; } });
   document.querySelector("#import-local")?.addEventListener("click", importLegacy);
-  document.querySelector("#delete-account")?.addEventListener("click", async () => { if (!confirm("Permanently delete your TsekAP account and every saved check-in?")) return; try { await api("account",{method:"DELETE"}); await signOut(auth); localStorage.removeItem(LEGACY_ACCOUNT_KEY); showToast("Account deleted.","success"); } catch(error){ showToast(error.message,"warning"); } });
+  document.querySelector("#delete-account")?.addEventListener("click", async () => { if (!confirm("Permanently delete your TsekAP account and every saved check-in?")) return; try { await api("account",{method:"DELETE"}); prepareLandingSplash(); await signOut(auth); localStorage.removeItem(LEGACY_ACCOUNT_KEY); showToast("Account deleted.","success"); } catch(error){ showToast(error.message,"warning"); } });
 }
 
 async function importLegacy() {
@@ -674,7 +681,7 @@ async function exportCsv(){try{const data=await api("admin/export",{method:"POST
 async function importCsv(event){const file=event.target.files[0];if(!file)return;const lines=(await file.text()).split(/\r?\n/).filter(Boolean);const headers=lines.shift().split(",").map((value)=>value.trim());let created=0;for(const line of lines){const values=line.split(",").map((value)=>value.trim().replace(/^"|"$/g,""));const row=Object.fromEntries(headers.map((key,index)=>[key,values[index]]));try{await api("admin/users",{method:"POST",body:JSON.stringify({lrn:row.lrn,password:row.password||undefined,profile:{name:row.name,dob:row.dob,sex:row.sex,conditions:["none"]},status:row.status||"approved"})});created++;}catch(error){showToast(`CSV row ${row.lrn||"unknown"}: ${error.message}`,"warning");}}await loadAdmin();render();showToast(`${created} student account(s) imported.`,"success");}
 
 function bindShell(){document.querySelectorAll("[data-route]").forEach((button)=>button.addEventListener("click",()=>navigate(()=>{state.route=button.dataset.route;state.menuOpen=false;render();})));document.querySelector("#menu-button")?.addEventListener("click",()=>{state.menuOpen=!state.menuOpen;render();});bindLogout();}
-function bindLogout(){document.querySelectorAll("[data-logout]").forEach((button)=>button.addEventListener("click",async()=>{await signOut(auth);state.route="home";showToast("You’re logged out.","success");}));}
+function bindLogout(){document.querySelectorAll("[data-logout]").forEach((button)=>button.addEventListener("click",async()=>{prepareLandingSplash();await signOut(auth);state.route="home";showToast("You’re logged out.","success");}));}
 function fieldError(id,message){const target=document.querySelector(`#${id}`);if(target){target.setAttribute("role","alert");target.textContent=message;target.hidden=false;target.scrollIntoView({block:"nearest",behavior:reducedMotion.matches?"auto":"smooth"});}}
 function friendlyAuthError(error){const map={"auth/invalid-credential":"The credentials were not recognized.","auth/user-disabled":"This account is disabled. Contact the administrator.","auth/too-many-requests":"Too many attempts. Please wait and try again.","auth/email-already-in-use":"An account already exists."};return map[error.code]||error.message||"Authentication failed.";}
 function firstName(){return state.profile?.name?.trim().split(/\s+/)[0]||"Student";}

@@ -9,12 +9,20 @@ const serviceWorker = readFileSync(join(root, "dist", "sw.js"), "utf8");
 const videoPath = join(root, "dist", "assets", "recommendations", "video", "exercise-walking.mp4");
 const stillPath = join(root, "dist", "assets", "recommendations", "exercise-walking.jpg");
 
-test("shows a versioned first-visit splash with a five-second skip path", () => {
-  assert.match(client, /tsekap\.splash\.seen\.v1/);
+test("shows the landing splash with a five-second skip path", () => {
   assert.match(client, /if \(state\.splashVisible\) renderSplash\(\)/);
   assert.match(client, /id="splash-skip"/);
   assert.match(client, /video\.currentTime >= 5/);
-  assert.match(client, /localStorage\.setItem\(SPLASH_SEEN_KEY, "true"\)/);
+  assert.doesNotMatch(client, /SPLASH_SEEN_KEY/);
+});
+
+test("replays the splash whenever an in-app path returns to the landing page", () => {
+  assert.match(client, /function prepareLandingSplash\(\)/);
+  assert.match(client, /state\.publicStep = "welcome"/);
+  assert.match(client, /state\.splashVisible = true/);
+  assert.match(client, /#disclaimer-back"\)\.addEventListener\("click", showLandingSplash\)/);
+  assert.match(client, /#offline-back"\)\.addEventListener\("click", showLandingSplash\)/);
+  assert.match(client, /#auth-home"\)\.addEventListener\("click", showLandingSplash\)/);
 });
 
 test("uses resilient video and reduced-motion still media", () => {
