@@ -26,6 +26,11 @@ const appCheck = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const LEGACY_ACCOUNT_KEY = "tsekap.encrypted-account.v1";
+const SPLASH_SEEN_KEY = "tsekap.splash.seen.v1";
+const splashWasSeen = (() => {
+  try { return localStorage.getItem(SPLASH_SEEN_KEY) === "true"; }
+  catch { return false; }
+})();
 const CONDITIONS = [
   ["none", "No known health conditions"], ["asthma", "Asthma"], ["heart", "Heart condition"],
   ["hypertension", "Hypertension"], ["diabetes", "Diabetes"], ["epilepsy", "Epilepsy / seizure disorders"],
@@ -38,6 +43,7 @@ const state = {
   authMode: "student-login", loading: true, adminStudents: [], auditLogs: [], adminSearch: "",
   selectedStudent: null, selectedCheckins: [], offlineResult: null,
   recommendationExpanded: { exercise: false, food: false },
+  splashVisible: !splashWasSeen,
   publicStep: sessionStorage.getItem("tsekap.disclaimer-acknowledged") ? "auth" : "welcome"
 };
 
@@ -163,7 +169,8 @@ onAuthStateChanged(auth, async (user) => {
 });
 
 function render() {
-  if (state.loading) renderLoading();
+  if (state.splashVisible) renderSplash();
+  else if (state.loading) renderLoading();
   else if (!state.firebaseUser || !state.profile) renderAuth();
   else if (state.profile.role === "admin" || state.claims.admin) renderAdminShell();
   else if (state.profile.mustChangePassword) renderChangePassword();
@@ -174,6 +181,8 @@ function render() {
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let revealObserver;
+let splashTimer;
+let splashCompleting = false;
 function revealOnScroll() {
   revealObserver?.disconnect();
   if (reducedMotion.matches || !("IntersectionObserver" in window)) return;
@@ -207,6 +216,43 @@ function navigate(action) {
 
 function renderLoading() {
   app.innerHTML = `<main class="center-screen" id="main-content"><div class="loading-mark">${icon("heart","icon icon-lg")}</div><h1>Opening your secure profile…</h1><p>Connecting to Firebase Auth and Firestore.</p></main>`;
+}
+
+function renderSplash() {
+  if (app.querySelector(".splash-screen")) return;
+  clearTimeout(splashTimer);
+  const media = reducedMotion.matches
+    ? `<img class="splash-media" src="/assets/recommendations/exercise-walking.jpg" alt="" width="1280" height="720">`
+    : `<video class="splash-media" autoplay muted playsinline preload="auto" poster="/assets/recommendations/exercise-walking.jpg" aria-hidden="true" tabindex="-1"><source src="/assets/recommendations/video/exercise-walking.mp4" type="video/mp4"></video>`;
+  app.innerHTML = `<main class="splash-screen" id="main-content" aria-labelledby="splash-title">
+    ${media}<div class="splash-overlay" aria-hidden="true"></div>
+    <div class="splash-frame">
+      <div class="splash-top"><div class="splash-brand">${brandLockup()}</div><button class="splash-skip" id="splash-skip" type="button">Skip <span aria-hidden="true">→</span></button></div>
+      <div class="splash-copy"><span class="splash-kicker">Student health awareness</span><h1 id="splash-title">Welcome to TsekAP</h1><p>Move with confidence. Understand your health. Build habits that support you every day.</p><div class="splash-progress" aria-hidden="true"><span></span></div></div>
+    </div>
+  </main>`;
+  const splash = app.querySelector(".splash-screen");
+  const video = splash.querySelector("video");
+  const finish = () => finishSplash();
+  document.querySelector("#splash-skip").addEventListener("click", finish);
+  if (video) {
+    video.addEventListener("timeupdate", () => { if (video.currentTime >= 5) finish(); });
+    video.addEventListener("error", () => splash.classList.add("media-failed"), { once: true });
+    video.play().catch(() => splash.classList.add("media-failed"));
+  }
+  splashTimer = window.setTimeout(finish, reducedMotion.matches ? 1600 : 5200);
+}
+
+function finishSplash() {
+  if (splashCompleting || !state.splashVisible) return;
+  splashCompleting = true;
+  clearTimeout(splashTimer);
+  app.querySelector(".splash-media")?.pause?.();
+  try { localStorage.setItem(SPLASH_SEEN_KEY, "true"); } catch {}
+  navigate(() => {
+    state.splashVisible = false;
+    render();
+  });
 }
 
 function renderAuth() {

@@ -131,6 +131,25 @@ svg { display: block; }
 }
 .center-screen h1 { margin: 18px 0 8px; color: var(--navy); font-size: clamp(30px, 5vw, 48px); letter-spacing: -.04em; }
 .center-screen > p { max-width: 580px; margin: 0 auto 24px; color: var(--muted); line-height: 1.65; }
+.splash-screen { position: relative; min-height: 100vh; min-height: 100svh; overflow: hidden; background: var(--navy-deep); color: #fff; isolation: isolate; }
+.splash-media { position: absolute; z-index: -3; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; object-position: center 44%; background: var(--navy-deep); }
+.splash-overlay { position: absolute; z-index: -2; inset: 0; background: linear-gradient(90deg,rgba(2,31,47,.91) 0%,rgba(3,49,70,.64) 46%,rgba(2,38,56,.18) 75%),linear-gradient(180deg,rgba(1,23,36,.28),transparent 42%,rgba(1,25,39,.55)); }
+.splash-frame { min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; justify-content: space-between; padding: max(32px,env(safe-area-inset-top)) max(38px,env(safe-area-inset-right)) max(40px,env(safe-area-inset-bottom)) max(38px,env(safe-area-inset-left)); }
+.splash-top { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.splash-brand .auth-logo-mark { background: rgba(3,49,70,.42); backdrop-filter: blur(14px); }
+.splash-brand .auth-logo-mark img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.splash-skip { min-width: 92px; min-height: 46px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 0 17px; border: 1px solid rgba(255,255,255,.36); border-radius: 999px; background: rgba(3,43,61,.42); color: #fff; font-weight: 760; cursor: pointer; backdrop-filter: blur(16px); transition: background .2s ease, transform .2s cubic-bezier(.18,.8,.24,1), border-color .2s ease; }
+.splash-skip:hover { background: rgba(4,72,96,.7); border-color: rgba(255,255,255,.62); transform: translateY(-2px); }
+.splash-skip:active { transform: scale(.98); }
+.splash-skip:focus-visible { outline-color: #87d6f0; }
+.splash-copy { width: min(680px,92vw); padding-bottom: clamp(22px,6vh,74px); }
+.splash-kicker { display: block; margin-bottom: 17px; color: #8ee0f5; font-size: 12px; font-weight: 850; letter-spacing: .16em; text-transform: uppercase; }
+.splash-copy h1 { max-width: 670px; margin: 0; color: #fff; font-size: clamp(48px,7.4vw,104px); line-height: .92; letter-spacing: -.055em; text-wrap: balance; }
+.splash-copy p { max-width: 590px; margin: 23px 0 29px; color: rgba(255,255,255,.84); font-size: clamp(16px,2vw,21px); line-height: 1.55; text-wrap: balance; }
+.splash-progress { width: min(360px,70vw); height: 3px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.25); }
+.splash-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: #8ee0f5; transform-origin: left center; animation: splash-progress 5s linear both; }
+.splash-screen.media-failed .splash-media { filter: saturate(.8) contrast(.95); }
+@keyframes splash-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .loading-mark, .pending-icon {
   width: 72px; height: 72px; display: grid; place-items: center; border-radius: 22px;
   background: var(--blue); color: white; box-shadow: 0 18px 38px rgba(8,127,168,.24);
@@ -679,6 +698,14 @@ svg { display: block; }
   .cloud-auth .auth-panel { padding: 32px 24px 48px; }
 }
 @media (max-width: 520px) {
+  .splash-frame { padding: max(22px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); }
+  .splash-top { align-items: flex-start; gap: 14px; }
+  .splash-brand .auth-logo-mark { width: 46px; height: 46px; border-radius: 14px; }
+  .splash-brand .auth-wordmark strong { font-size: 21px; }
+  .splash-skip { min-width: 78px; min-height: 42px; padding: 0 14px; }
+  .splash-copy { width: 100%; padding-bottom: 12px; }
+  .splash-copy h1 { max-width: 440px; font-size: clamp(48px,15vw,68px); }
+  .splash-copy p { max-width: 440px; margin: 18px 0 24px; font-size: 16px; }
   .cloud-auth .auth-story { padding: 22px 20px 26px; }
   .cloud-auth .auth-logo-mark { width: 46px; height: 46px; border-radius: 14px; }
   .cloud-auth .auth-wordmark strong { font-size: 21px; }
@@ -687,5 +714,6 @@ svg { display: block; }
   .cloud-auth .compact-form .field-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .splash-progress span { animation: none; transform: scaleX(1); }
   .reveal-ready { opacity: 1 !important; transform: none !important; }
 }
