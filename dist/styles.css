@@ -651,6 +651,11 @@ svg { display: block; }
   ::view-transition-new(root) { animation: .34s cubic-bezier(.18,.8,.24,1) both page-arrive; }
   @keyframes page-away { to { opacity: 0; transform: translateY(-7px); } }
   @keyframes page-arrive { from { opacity: 0; transform: translateY(14px); } }
+  html.splash-exit-transition::view-transition-old(root) { animation: .65s cubic-bezier(.4,0,.8,.3) both splash-scroll-away; }
+  html.splash-exit-transition::view-transition-new(root) { animation: .65s cubic-bezier(.18,.8,.24,1) both splash-scroll-arrive; }
+  html.splash-exit-transition::view-transition-group(root) { animation-duration: .65s; }
+  @keyframes splash-scroll-away { from { transform: translateY(0); } to { transform: translateY(-100%); } }
+  @keyframes splash-scroll-arrive { from { transform: translateY(100%); } to { transform: translateY(0); } }
   .reveal-ready { opacity: 0; transform: translateY(14px); transition: opacity .52s ease, transform .52s cubic-bezier(.18,.8,.24,1); }
   .reveal-ready.is-visible { opacity: 1; transform: translateY(0); }
   .button, .nav-button, .logout-button, .auth-tab, .text-button, .icon-button, .menu-button, .reference-link, .condition, .check-card, .conditions-disclosure, .card {

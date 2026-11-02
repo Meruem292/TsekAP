@@ -243,10 +243,40 @@ function finishSplash() {
   splashCompleting = true;
   clearTimeout(splashTimer);
   app.querySelector(".splash-media")?.pause?.();
-  navigate(() => {
-    state.splashVisible = false;
-    render();
-  });
+  transitionFromSplash();
+}
+
+function renderSplashDestination() {
+  state.splashVisible = false;
+  render();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+function transitionFromSplash() {
+  if (reducedMotion.matches) {
+    renderSplashDestination();
+    return;
+  }
+  if (document.startViewTransition) {
+    document.documentElement.classList.add("splash-exit-transition");
+    const transition = document.startViewTransition(renderSplashDestination);
+    transition.finished.finally(() => document.documentElement.classList.remove("splash-exit-transition"));
+    return;
+  }
+  const splash = app.querySelector(".splash-screen");
+  const finishFallback = () => {
+    renderSplashDestination();
+    app.firstElementChild?.animate?.(
+      [{ opacity: .72, transform: "translateY(18vh)" }, { opacity: 1, transform: "translateY(0)" }],
+      { duration: 360, easing: "cubic-bezier(.18,.8,.24,1)" }
+    );
+  };
+  const exit = splash?.animate?.(
+    [{ transform: "translateY(0)" }, { transform: "translateY(-100%)" }],
+    { duration: 290, easing: "cubic-bezier(.4,0,.8,.3)", fill: "forwards" }
+  );
+  if (!exit) finishFallback();
+  else exit.finished.catch(() => {}).then(finishFallback);
 }
 
 function prepareLandingSplash() {
