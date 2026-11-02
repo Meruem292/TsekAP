@@ -60,7 +60,8 @@ const icon = (name, cls = "icon") => {
     scale:'<path d="M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M8 9a4 4 0 0 1 8 0M12 9l2-2"/>',
     calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
     activity:'<path d="M3 12h4l2.2-6 4.1 12 2.2-6H21"/>',
-    leaf:'<path d="M20 4C12 4 5 8 5 15c0 3 2 5 5 5 7 0 10-8 10-16Z"/><path d="M4 21c3-5 7-8 12-11"/>'
+    leaf:'<path d="M20 4C12 4 5 8 5 15c0 3 2 5 5 5 7 0 10-8 10-16Z"/><path d="M4 21c3-5 7-8 12-11"/>',
+    play:'<path d="m8 5 11 7-11 7Z"/>'
   };
   return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.info}</svg>`;
 };
@@ -264,8 +265,9 @@ function renderOfflineCalculator() {
       const plan = wellnessPlanFor(result.classification);
       const guidance = [plan.exercise[0], plan.food[0]];
       document.querySelector("#offline-error").hidden = true;
-      document.querySelector("#offline-result").innerHTML = `<section class="offline-result"><span class="eyebrow">Your educational result</span><div class="offline-result-number">${result.bmi.toFixed(1)}</div><span class="classification-pill ${tone(result.classification)}">${esc(result.classification)}</span><p>WHO BMI-for-age z-score: <strong>${signed(result.z)}</strong></p><div class="offline-guidance-grid">${guidance.map((item)=>`<article>${animatedMedia(item)}<div><span class="recommendation-kind">${item.kind}</span><strong>${esc(item.title)}</strong><p>${esc(item.body)}</p></div></article>`).join("")}</div><p class="micro-note">This calculation is not saved. It is a screening result, not a diagnosis.</p></section>`;
+      document.querySelector("#offline-result").innerHTML = `<section class="offline-result"><span class="eyebrow">Your educational result</span><div class="offline-result-number">${result.bmi.toFixed(1)}</div><span class="classification-pill ${tone(result.classification)}">${esc(result.classification)}</span><p>WHO BMI-for-age z-score: <strong>${signed(result.z)}</strong></p><div class="offline-guidance-grid">${guidance.map((item)=>`<article data-recommendation-card>${animatedMedia(item)}<div><span class="recommendation-kind">${item.kind}</span><strong>${esc(item.title)}</strong><p>${esc(item.body)}</p></div></article>`).join("")}</div><p class="micro-note">This calculation is not saved. It is a screening result, not a diagnosis.</p></section>`;
       manageRecommendationVideos();
+      bindRecommendationPlayback(document.querySelector("#offline-result"));
     } catch (error) { fieldError("offline-error", error.message); }
   });
 }
@@ -422,12 +424,12 @@ function recommendationSection(kind, items) {
 }
 
 function recommendationCard(item) {
-  return `<article class="recommendation-item">${animatedMedia(item)}<div class="recommendation-content"><div class="recommendation-meta"><span class="recommendation-kind">${item.kind === "exercise" ? "Movement" : "Food"}</span><span>${esc(item.intensity)}</span><span>${esc(item.impact)}</span></div><h4>${esc(item.title)}</h4><p>${esc(item.body)}</p><div class="recommendation-reason"><strong>Why this fits</strong><span>${esc(item.why)}</span></div><div class="recommendation-safety">${icon("shield","icon icon-sm")}<span>${esc(item.safety)}</span></div><a class="tip-source" href="${item.href}" target="_blank" rel="noopener">${esc(item.source)} ↗</a></div></article>`;
+  return `<article class="recommendation-item" data-recommendation-card>${animatedMedia(item)}<div class="recommendation-content"><div class="recommendation-meta"><span class="recommendation-kind">${item.kind === "exercise" ? "Movement" : "Food"}</span><span>${esc(item.intensity)}</span><span>${esc(item.impact)}</span></div><h4>${esc(item.title)}</h4><p>${esc(item.body)}</p><div class="recommendation-reason"><strong>Why this fits</strong><span>${esc(item.why)}</span></div><div class="recommendation-safety">${icon("shield","icon icon-sm")}<span>${esc(item.safety)}</span></div><a class="tip-source" href="${item.href}" target="_blank" rel="noopener">${esc(item.source)} ↗</a></div></article>`;
 }
 
 function animatedMedia(item) {
-  if (reducedMotion.matches) return `<img src="${item.image}" alt="" loading="lazy" width="360" height="270">`;
-  return `<video class="recommendation-video" autoplay muted loop playsinline disablepictureinpicture preload="metadata" poster="${item.image}" aria-hidden="true" tabindex="-1" width="360" height="270"><source src="${item.video}" type="video/mp4"></video>`;
+  const autoplay = reducedMotion.matches ? "" : " autoplay";
+  return `<button class="recommendation-media" type="button" data-video-title="${esc(item.title)}" aria-label="Play ${esc(item.title)} video"><video class="recommendation-video"${autoplay} muted loop playsinline disablepictureinpicture preload="metadata" poster="${item.image}" aria-hidden="true" tabindex="-1" width="360" height="270"><source src="${item.video}" type="video/mp4"></video><span class="recommendation-play" aria-hidden="true">${icon("play", "icon icon-sm")}</span></button>`;
 }
 
 function manageRecommendationVideos() {
@@ -435,11 +437,41 @@ function manageRecommendationVideos() {
   if (!videos.length || !("IntersectionObserver" in window)) return;
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
-      if (entry.isIntersecting) entry.target.play().catch(() => {});
+      if (entry.isIntersecting && !reducedMotion.matches) entry.target.play().catch(() => {});
       else entry.target.pause();
     }
   }, { rootMargin: "180px 0px", threshold: .05 });
   videos.forEach((video) => observer.observe(video));
+}
+
+function playRecommendationVideo(video, restart = false) {
+  if (!video) return;
+  if (restart && !video.paused && video.currentTime > .1) video.currentTime = 0;
+  video.play().catch(() => {});
+}
+
+function bindRecommendationPlayback(root = document) {
+  root.querySelectorAll(".recommendation-media").forEach((button) => {
+    const video = button.querySelector(".recommendation-video");
+    if (!video || button.dataset.bound === "true") return;
+    button.dataset.bound = "true";
+    const sync = () => {
+      button.classList.toggle("is-playing", !video.paused);
+      button.setAttribute("aria-label", `${video.paused ? "Play" : "Restart"} ${button.dataset.videoTitle} video`);
+    };
+    button.addEventListener("click", () => playRecommendationVideo(video, true));
+    video.addEventListener("play", sync);
+    video.addEventListener("pause", sync);
+    sync();
+  });
+  root.querySelectorAll("[data-recommendation-card]").forEach((card) => {
+    if (card.dataset.playbackBound === "true") return;
+    card.dataset.playbackBound = "true";
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("a, button")) return;
+      playRecommendationVideo(card.querySelector(".recommendation-video"), true);
+    });
+  });
 }
 
 function measurementView() {
@@ -479,6 +511,7 @@ function accountView() {
 
 function bindStudentRoute() {
   manageRecommendationVideos();
+  bindRecommendationPlayback();
   document.querySelectorAll("[data-recommend-more]").forEach((button) => button.addEventListener("click", () => {
     const kind = button.dataset.recommendMore;
     const section = button.closest(".recommendation-section");

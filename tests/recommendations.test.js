@@ -95,11 +95,16 @@ test("dashboard preview shows three cards before expanding", () => {
   assert.equal(expanded.visible.length, plan.exercise.length);
 });
 
-test("uses five-second videos, reduced-motion stills, and lazy media caching", () => {
+test("uses five-second videos, explicit playback controls, and lazy media caching", () => {
   const client = readFileSync(join(process.cwd(), "client", "main.js"), "utf8");
   const serviceWorker = readFileSync(join(process.cwd(), "dist", "sw.js"), "utf8");
   assert.match(client, /prefers-reduced-motion: reduce/);
-  assert.match(client, /<video class="recommendation-video" autoplay muted loop playsinline/);
+  assert.match(client, /class="recommendation-media"/);
+  assert.match(client, /class="recommendation-video"/);
+  assert.match(client, /data-recommendation-card/);
+  assert.match(client, /function bindRecommendationPlayback/);
+  assert.match(client, /video\.play\(\)/);
+  assert.match(client, /reducedMotion\.matches \? "" : " autoplay"/);
   assert.doesNotMatch(client, /\.gif/);
   const shell = serviceWorker.slice(0, serviceWorker.indexOf("self.addEventListener"));
   assert.doesNotMatch(shell, /assets\/recommendations/);
