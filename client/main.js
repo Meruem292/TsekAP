@@ -26,6 +26,7 @@ const appCheck = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const LEGACY_ACCOUNT_KEY = "tsekap.encrypted-account.v1";
+const SPLASH_DURATION_SECONDS = 10;
 const CONDITIONS = [
   ["none", "No known health conditions"], ["asthma", "Asthma"], ["heart", "Heart condition"],
   ["hypertension", "Hypertension"], ["diabetes", "Diabetes"], ["epilepsy", "Epilepsy / seizure disorders"],
@@ -231,11 +232,11 @@ function renderSplash() {
   const finish = () => finishSplash();
   document.querySelector("#splash-skip").addEventListener("click", finish);
   if (video) {
-    video.addEventListener("timeupdate", () => { if (video.currentTime >= 5) finish(); });
+    video.addEventListener("timeupdate", () => { if (video.currentTime >= SPLASH_DURATION_SECONDS) finish(); });
     video.addEventListener("error", () => splash.classList.add("media-failed"), { once: true });
     video.play().catch(() => splash.classList.add("media-failed"));
   }
-  splashTimer = window.setTimeout(finish, reducedMotion.matches ? 1600 : 5200);
+  splashTimer = window.setTimeout(finish, reducedMotion.matches ? 1600 : 10200);
 }
 
 function finishSplash() {

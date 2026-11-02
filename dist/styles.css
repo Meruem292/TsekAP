@@ -147,7 +147,7 @@ svg { display: block; }
 .splash-copy h1 { max-width: 670px; margin: 0; color: #fff; font-size: clamp(48px,7.4vw,104px); line-height: .92; letter-spacing: -.055em; text-wrap: balance; }
 .splash-copy p { max-width: 590px; margin: 23px 0 29px; color: rgba(255,255,255,.84); font-size: clamp(16px,2vw,21px); line-height: 1.55; text-wrap: balance; }
 .splash-progress { width: min(360px,70vw); height: 3px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.25); }
-.splash-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: #8ee0f5; transform-origin: left center; animation: splash-progress 5s linear both; }
+.splash-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: #8ee0f5; transform-origin: left center; animation: splash-progress 10s linear both; }
 .splash-screen.media-failed .splash-media { filter: saturate(.8) contrast(.95); }
 @keyframes splash-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .loading-mark, .pending-icon {
