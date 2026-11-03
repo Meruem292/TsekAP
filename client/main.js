@@ -230,7 +230,7 @@ function revealOnScroll() {
       entry.target.classList.add("is-visible");
       revealObserver.unobserve(entry.target);
     }
-  }, { threshold: .08, rootMargin: "0px 0px 30px 0px" });
+  }, { threshold: .01, rootMargin: "0px 0px 30px 0px" });
   document.querySelectorAll(".page > .card, .page > .page-header, .page > .admin-stats, .page > .admin-table, .page > .dashboard-grid, .page > .history-list, .page > .article-grid, .auth-panel-inner, .story-copy").forEach((element) => {
     element.classList.add("reveal-ready");
     revealObserver.observe(element);
@@ -669,27 +669,56 @@ function accountView() {
 function bindStudentRoute() {
   manageRecommendationVideos();
   bindRecommendationPlayback();
-  document.querySelectorAll("[data-recommend-more]").forEach((button) => button.addEventListener("click", () => {
-    const kind = button.dataset.recommendMore;
-    const section = button.closest(".recommendation-section");
-    const top = section?.getBoundingClientRect().top || 0;
-    const update = () => {
-      state.recommendationExpanded[kind] = !state.recommendationExpanded[kind];
-      render();
-      const updated = document.querySelector(`[data-recommend-more="${kind}"]`);
-      const updatedSection = updated?.closest(".recommendation-section");
-      if (updatedSection) window.scrollBy({ top: updatedSection.getBoundingClientRect().top - top, behavior: "instant" });
-      updated?.focus({ preventScroll: true });
-    };
-    if (!reducedMotion.matches && document.startViewTransition) document.startViewTransition(update);
-    else update();
-  }));
+  bindRecommendationExpand();
   document.querySelector("#checkin-form")?.addEventListener("submit", submitCheckin);
   document.querySelectorAll("[data-sync-now]").forEach((button) => button.addEventListener("click", () => syncQueuedCheckins({ retryFailed: true })));
   document.querySelectorAll("[data-retry-queued]").forEach((button) => button.addEventListener("click", async () => { await updateQueuedCheckin(button.dataset.retryQueued,{status:"pending",lastError:null}); await syncQueuedCheckins(); }));
   document.querySelectorAll("[data-discard-queued]").forEach((button) => button.addEventListener("click", async () => { if (!confirm("Discard this pending check-in from this device?")) return; await removeQueuedCheckin(button.dataset.discardQueued); await hydrateQueuedCheckins(); render(); showToast("Pending check-in discarded.","success"); }));
   document.querySelector("#import-local")?.addEventListener("click", importLegacy);
   document.querySelector("#delete-account")?.addEventListener("click", async () => { if (!confirm("Permanently delete your TsekAP account and every saved check-in?")) return; try { const uid=auth.currentUser.uid; await api("account",{method:"DELETE"}); await clearUserOfflineData(uid); prepareLandingSplash(); await signOut(auth); localStorage.removeItem(LEGACY_ACCOUNT_KEY); showToast("Account deleted.","success"); } catch(error){ showToast(error.message,"warning"); } });
+}
+
+function bindRecommendationExpand(root = document) {
+  root.querySelectorAll("[data-recommend-more]").forEach((button) => {
+    if (button.dataset.bound === "true") return;
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => {
+      const kind = button.dataset.recommendMore;
+      const currentSection = button.closest(".recommendation-section");
+      const latest = combinedCheckins()[0];
+      if (!currentSection || !latest || !["exercise", "food"].includes(kind)) return;
+
+      state.recommendationExpanded[kind] = !state.recommendationExpanded[kind];
+      const plan = wellnessPlanFor(latest.classification, state.profile.conditions);
+      const template = document.createElement("template");
+      template.innerHTML = recommendationSection(kind, plan[kind]).trim();
+      const nextSection = template.content.firstElementChild;
+      currentSection.replaceWith(nextSection);
+
+      bindRecommendationExpand(nextSection);
+      bindRecommendationPlayback(nextSection);
+      manageRecommendationVideos();
+      const nextButton = nextSection.querySelector("[data-recommend-more]");
+      if (state.recommendationExpanded[kind]) {
+        const heading = nextSection.querySelector("h3");
+        heading?.setAttribute("tabindex", "-1");
+        heading?.focus({ preventScroll: true });
+      } else {
+        nextButton?.focus({ preventScroll: true });
+        nextButton?.scrollIntoView({ block: "nearest", behavior: reducedMotion.matches ? "auto" : "smooth" });
+      }
+
+      if (!reducedMotion.matches && state.recommendationExpanded[kind]) {
+        nextSection.querySelectorAll("[data-recommendation-card]").forEach((card, index) => {
+          if (index < 3) return;
+          card.animate?.(
+            [{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "translateY(0)" }],
+            { duration: 280, delay: Math.min((index - 3) * 24, 180), easing: "cubic-bezier(.18,.8,.24,1)", fill: "both" }
+          );
+        });
+      }
+    });
+  });
 }
 
 async function submitCheckin(event) {

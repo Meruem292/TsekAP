@@ -95,6 +95,16 @@ test("dashboard preview shows three cards before expanding", () => {
   assert.equal(expanded.visible.length, plan.exercise.length);
 });
 
+test("view-more expands only its recommendation section without a page transition", () => {
+  const client = readFileSync(join(process.cwd(), "client", "main.js"), "utf8");
+  const expandHandler = client.slice(client.indexOf("function bindRecommendationExpand"), client.indexOf("async function submitCheckin"));
+  assert.match(expandHandler, /currentSection\.replaceWith\(nextSection\)/);
+  assert.match(expandHandler, /bindRecommendationPlayback\(nextSection\)/);
+  assert.match(expandHandler, /focus\(\{ preventScroll: true \}\)/);
+  assert.doesNotMatch(expandHandler, /startViewTransition/);
+  assert.match(client, /threshold: \.01/);
+});
+
 test("uses five-second videos, explicit playback controls, and lazy media caching", () => {
   const client = readFileSync(join(process.cwd(), "client", "main.js"), "utf8");
   const serviceWorker = readFileSync(join(process.cwd(), "dist", "sw.js"), "utf8");
