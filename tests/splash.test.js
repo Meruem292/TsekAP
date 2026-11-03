@@ -10,13 +10,16 @@ const serviceWorker = readFileSync(join(root, "dist", "sw.js"), "utf8");
 const videoPath = join(root, "dist", "assets", "recommendations", "video", "exercise-walking.mp4");
 const stillPath = join(root, "dist", "assets", "recommendations", "exercise-walking.jpg");
 
-test("shows the landing splash for the full ten-second video with a skip path", () => {
+test("plays the complete source video and lets the whole splash skip", () => {
   assert.match(client, /if \(state\.splashVisible\) renderSplash\(\)/);
-  assert.match(client, /id="splash-skip"/);
-  assert.match(client, /SPLASH_DURATION_SECONDS = 10/);
-  assert.match(client, /video\.currentTime >= SPLASH_DURATION_SECONDS/);
-  assert.match(client, /reducedMotion\.matches \? 1600 : 10200/);
-  assert.match(styles, /animation: splash-progress 10s linear both/);
+  assert.match(client, /video\.addEventListener\("ended", finish/);
+  assert.match(client, /splash\.addEventListener\("click", finish\)/);
+  assert.match(client, /event\.key !== "Enter" && event\.key !== " "/);
+  assert.match(client, /video\.duration/);
+  assert.doesNotMatch(client, /SPLASH_DURATION_SECONDS/);
+  assert.doesNotMatch(client, /id="splash-skip"/);
+  assert.match(styles, /--splash-duration,10s/);
+  assert.match(styles, /animation-play-state: paused/);
   assert.doesNotMatch(client, /SPLASH_SEEN_KEY/);
 });
 

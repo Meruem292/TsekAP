@@ -30,7 +30,6 @@ const appCheck = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const LEGACY_ACCOUNT_KEY = "tsekap.encrypted-account.v1";
-const SPLASH_DURATION_SECONDS = 10;
 const CONDITIONS = [
   ["none", "No known health conditions"], ["asthma", "Asthma"], ["heart", "Heart condition"],
   ["hypertension", "Hypertension"], ["diabetes", "Diabetes"], ["epilepsy", "Epilepsy / seizure disorders"],
@@ -264,23 +263,38 @@ function renderSplash() {
   const media = reducedMotion.matches
     ? `<img class="splash-media" src="/assets/recommendations/exercise-walking.jpg" alt="" width="1280" height="720">`
     : `<video class="splash-media" autoplay muted playsinline preload="auto" poster="/assets/recommendations/exercise-walking.jpg" aria-hidden="true" tabindex="-1"><source src="/assets/recommendations/video/exercise-walking.mp4" type="video/mp4"></video>`;
-  app.innerHTML = `<main class="splash-screen" id="main-content" aria-labelledby="splash-title">
+  app.innerHTML = `<main class="splash-screen" id="main-content" aria-labelledby="splash-title" role="button" tabindex="0" aria-label="Welcome to TsekAP. Tap anywhere to continue.">
     ${media}<div class="splash-overlay" aria-hidden="true"></div>
     <div class="splash-frame">
-      <div class="splash-top"><div class="splash-brand">${brandLockup()}</div><button class="splash-skip" id="splash-skip" type="button">Skip <span aria-hidden="true">→</span></button></div>
+      <div class="splash-top"><div class="splash-brand">${brandLockup()}</div><span class="splash-tap-hint" aria-hidden="true">Tap anywhere to continue <span>→</span></span></div>
       <div class="splash-copy"><span class="splash-kicker">Student health awareness</span><h1 id="splash-title">Welcome to TsekAP</h1><p>Move with confidence. Understand your health. Build habits that support you every day.</p><div class="splash-progress" aria-hidden="true"><span></span></div></div>
     </div>
   </main>`;
   const splash = app.querySelector(".splash-screen");
   const video = splash.querySelector("video");
   const finish = () => finishSplash();
-  document.querySelector("#splash-skip").addEventListener("click", finish);
+  splash.addEventListener("click", finish);
+  splash.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    finish();
+  });
   if (video) {
-    video.addEventListener("timeupdate", () => { if (video.currentTime >= SPLASH_DURATION_SECONDS) finish(); });
-    video.addEventListener("error", () => splash.classList.add("media-failed"), { once: true });
-    video.play().catch(() => splash.classList.add("media-failed"));
+    video.addEventListener("loadedmetadata", () => {
+      if (Number.isFinite(video.duration) && video.duration > 0) splash.style.setProperty("--splash-duration", `${video.duration}s`);
+    }, { once: true });
+    video.addEventListener("playing", () => splash.classList.add("media-playing"), { once: true });
+    video.addEventListener("ended", finish, { once: true });
+    const mediaFallback = () => {
+      splash.classList.add("media-failed");
+      clearTimeout(splashTimer);
+      splashTimer = window.setTimeout(finish, 1600);
+    };
+    video.addEventListener("error", mediaFallback, { once: true });
+    video.play().catch(mediaFallback);
+  } else {
+    splashTimer = window.setTimeout(finish, 1600);
   }
-  splashTimer = window.setTimeout(finish, reducedMotion.matches ? 1600 : 10200);
 }
 
 function finishSplash() {
