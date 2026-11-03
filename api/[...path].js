@@ -113,15 +113,47 @@ async function createCheckin(request) {
   }
   const input = await body(request);
   const measuredAt = input.date ? new Date(input.date) : new Date();
+  if (Number.isNaN(measuredAt.getTime())) {
+    throw Object.assign(new Error("Enter a valid measurement date."), { status: 400 });
+  }
+  if (measuredAt.getTime() > Date.now() + 5 * 60000 || !withinRetentionWindow(measuredAt)) {
+    throw Object.assign(new Error(`Measurements must be within the last ${RETENTION_DAYS} days and cannot be in the future.`), { status: 400 });
+  }
+  const clientRequestId = input.clientRequestId == null ? null : String(input.clientRequestId);
+  if (clientRequestId && !/^[A-Za-z0-9_-]{16,80}$/.test(clientRequestId)) {
+    throw Object.assign(new Error("The check-in request identifier is invalid."), { status: 400 });
+  }
   const ageMonths = completedAgeMonths(userSnap.data().dob, measuredAt);
   const result = calculateBmi(input.height, input.weight, ageMonths, userSnap.data().sex);
-  const ref = userRef.collection("checkins").doc();
+  const ref = clientRequestId
+    ? userRef.collection("checkins").doc(`client-${sha256(`${actor.uid}:${clientRequestId}`).slice(0, 40)}`)
+    : userRef.collection("checkins").doc();
   const record = {
     studentId: actor.uid, date: Timestamp.fromDate(measuredAt), expiresAt: Timestamp.fromDate(retentionExpiry(measuredAt)), height: Number(input.height), weight: Number(input.weight),
     ageMonths, ...result, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid
   };
-  await ref.set(record);
-  return json({ ok: true, id: ref.id, ...result }, 201);
+  let deduplicated = false;
+  if (clientRequestId) {
+    await db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (!existing.exists) {
+        transaction.create(ref, { ...record, clientRequestId });
+        return;
+      }
+      const saved = existing.data();
+      const savedDate = saved.date?.toDate?.() || new Date(saved.date);
+      const matches = Number(saved.height) === Number(input.height)
+        && Number(saved.weight) === Number(input.weight)
+        && savedDate.getTime() === measuredAt.getTime();
+      if (!matches) {
+        throw Object.assign(new Error("This request identifier was already used for different measurements."), { status: 409 });
+      }
+      deduplicated = true;
+    });
+  } else {
+    await ref.set(record);
+  }
+  return json({ ok: true, id: ref.id, deduplicated, ...result }, deduplicated ? 200 : 201);
 }
 
 async function changePassword(request) {

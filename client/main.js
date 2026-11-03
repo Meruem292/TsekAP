@@ -7,6 +7,10 @@ import {
 import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckToken } from "firebase/app-check";
 import { calculateBmi, completedAgeMonths } from "../shared/bmi.js";
 import { HEALTH_REFERENCES, recommendationPreview, wellnessPlanFor } from "../shared/recommendations.js";
+import {
+  cacheApprovedProfile, clearUserOfflineData, enqueueCheckin, listQueuedCheckins,
+  loadCachedProfile, purgeExpiredCheckins, removeQueuedCheckin, updateQueuedCheckin
+} from "./offline-store.js";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDMtwiGuNlBFkhpUMwIwImSKaLpK4WuaSo",
@@ -37,11 +41,13 @@ const CONDITIONS = [
 const state = {
   firebaseUser: null, profile: null, checkins: [], claims: {}, route: "home", menuOpen: false,
   authMode: "student-login", loading: true, adminStudents: [], auditLogs: [], adminSearch: "",
-  selectedStudent: null, selectedCheckins: [], offlineResult: null,
+  selectedStudent: null, selectedCheckins: [], offlineResult: null, queuedCheckins: [],
+  syncState: "idle", syncError: null, offlineProfile: false,
   recommendationExpanded: { exercise: false, food: false },
   splashVisible: true,
   publicStep: sessionStorage.getItem("tsekap.disclaimer-acknowledged") ? "auth" : "welcome"
 };
+let syncPromise;
 
 const esc = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char]));
 const icon = (name, cls = "icon") => {
@@ -108,27 +114,35 @@ async function studentEmail(lrn) {
 }
 
 async function api(path, options = {}) {
-  const headers = new Headers(options.headers || {});
-  headers.set("content-type", "application/json");
-  if (auth.currentUser) headers.set("authorization", `Bearer ${await auth.currentUser.getIdToken()}`);
-  if (appCheck) {
-    const token = await getAppCheckToken(appCheck, false);
-    headers.set("x-firebase-appcheck", token.token);
+  let response;
+  try {
+    const headers = new Headers(options.headers || {});
+    headers.set("content-type", "application/json");
+    if (auth.currentUser) headers.set("authorization", `Bearer ${await auth.currentUser.getIdToken()}`);
+    if (appCheck) {
+      const token = await getAppCheckToken(appCheck, false);
+      headers.set("x-firebase-appcheck", token.token);
+    }
+    response = await fetch(`/api/${path}`, { ...options, headers });
+  } catch (cause) {
+    throw Object.assign(new Error("The network is unavailable. Your pending work remains on this device."), { status: 0, transient: true, cause });
   }
-  const response = await fetch(`/api/${path}`, { ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const localApiMissing = response.status === 404 && ["localhost", "127.0.0.1"].includes(location.hostname);
-    throw new Error(data.error || (localApiMissing
+    throw Object.assign(new Error(data.error || (localApiMissing
       ? "The local API is not running. Stop this server and restart it with npm run dev."
-      : `The service could not complete this request (${response.status}).`));
+      : `The service could not complete this request (${response.status}).`)), {
+      status: response.status,
+      transient: response.status === 408 || response.status === 429 || response.status >= 500
+    });
   }
   return data;
 }
 
-async function loadSession() {
+async function loadSession({ allowSync = true } = {}) {
   if (!auth.currentUser) {
-    state.profile = null; state.checkins = []; state.claims = {}; state.loading = false; render(); return;
+    state.profile = null; state.checkins = []; state.queuedCheckins = []; state.claims = {}; state.loading = false; render(); return;
   }
   try {
     const token = await getIdTokenResult(auth.currentUser);
@@ -136,20 +150,50 @@ async function loadSession() {
     const data = await api("me");
     state.profile = data.user;
     state.checkins = data.checkins || [];
+    state.offlineProfile = false;
+    if (state.profile.role === "student" && state.profile.status === "approved") {
+      await cacheApprovedProfile(state.profile);
+      await hydrateQueuedCheckins();
+    }
     if (state.claims.admin) await loadAdmin();
   } catch (error) {
-    if (auth.currentUser.email === "newroskoto@gmail.com") {
+    if (auth.currentUser.email === "newroskoto@gmail.com" && navigator.onLine) {
       try {
         await api("auth/bootstrap-admin", { method: "POST", body: "{}" });
         await auth.currentUser.getIdToken(true);
-        return loadSession();
+        return loadSession({ allowSync });
       } catch {}
     }
-    showToast(error.message, "warning");
+    const cached = (error.transient || !navigator.onLine) ? await loadCachedProfile(auth.currentUser.uid).catch(() => null) : null;
+    if (cached?.status === "approved") {
+      state.profile = cached;
+      state.checkins = [];
+      state.claims = {};
+      state.offlineProfile = true;
+      await hydrateQueuedCheckins();
+      showToast("You’re working offline. New check-ins will sync when connection returns.", "warning");
+    } else showToast(error.message, "warning");
   } finally {
     state.loading = false;
     render();
   }
+  if (allowSync && navigator.onLine && state.profile?.status === "approved") queueMicrotask(() => syncQueuedCheckins({ silent: true }));
+}
+
+async function hydrateQueuedCheckins() {
+  if (!auth.currentUser || !state.profile) { state.queuedCheckins = []; return; }
+  await purgeExpiredCheckins(auth.currentUser.uid).catch(() => 0);
+  const queued = await listQueuedCheckins(auth.currentUser.uid).catch(() => []);
+  state.queuedCheckins = queued.map((record) => {
+    if (!record.payload) return { id:`queued-${record.queueId}`, queueId:record.queueId, date:record.createdAt, syncStatus:"failed", syncError:record.lastError, offline:true };
+    try {
+      const measuredAt = new Date(record.payload.date);
+      const result = calculateBmi(record.payload.height, record.payload.weight, completedAgeMonths(state.profile.dob, measuredAt), state.profile.sex);
+      return { id:`queued-${record.queueId}`, queueId:record.queueId, ...record.payload, ...result, syncStatus:record.status, syncError:record.lastError, offline:true };
+    } catch (error) {
+      return { id:`queued-${record.queueId}`, queueId:record.queueId, ...record.payload, syncStatus:"failed", syncError:error.message, offline:true };
+    }
+  }).sort((a,b) => new Date(b.date) - new Date(a.date));
 }
 
 async function loadAdmin() {
@@ -462,10 +506,24 @@ function renderChangePassword() {
   document.querySelector("#change-password-form").addEventListener("submit", async (event) => { event.preventDefault(); const password = new FormData(event.currentTarget).get("password"); try { await updatePassword(auth.currentUser, password); await api("account/change-password",{method:"POST",body:JSON.stringify({password})}); showToast("Password updated.","success"); await loadSession(); } catch(error){ fieldError("password-error",friendlyAuthError(error)); } });
 }
 
+function combinedCheckins() {
+  return [...state.queuedCheckins, ...state.checkins].sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function queueStatusBanner() {
+  const count = state.queuedCheckins.length;
+  if (!count) return "";
+  const failed = state.queuedCheckins.filter((item) => item.syncStatus === "failed").length;
+  const label = state.syncState === "syncing" ? `Syncing ${count} check-in${count === 1 ? "" : "s"}…`
+    : failed ? `${failed} check-in${failed === 1 ? " needs" : "s need"} attention`
+      : `${count} check-in${count === 1 ? " is" : "s are"} pending sync`;
+  return `<div class="notice ${failed ? "error" : "warning"} sync-banner">${icon(state.syncState === "syncing" ? "clock" : "info", "icon icon-sm")}<span><strong>${label}</strong><small>${navigator.onLine ? "Stored securely on this device until cloud sync completes." : "They will sync automatically when your connection returns."}</small></span><button class="button mini secondary" type="button" data-sync-now ${state.syncState === "syncing" || !navigator.onLine ? "disabled" : ""}>Retry sync</button></div>`;
+}
+
 function renderStudentShell() {
   const items = [["home","home","Home"],["measurement","plus","New check-in"],["history","chart","History"],["learn","book","Learn"],["about","info","About"],["account","shield","Account"]];
   const nav = items.map(([route,glyph,label]) => `<button class="nav-button ${state.route===route?"active":""}" data-route="${route}">${icon(glyph)}<span>${label}</span></button>`).join("");
-  app.innerHTML = `<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark"><img class="brand-logo" src="/assets/tsekap-logo-transparent.png" alt=""></div><div class="brand-copy"><strong>Tsek<b>AP</b></strong><span>Awareness & Prevention</span></div></div><nav class="nav-list">${nav}</nav><div class="sidebar-footer"><div class="profile-chip"><div class="avatar">${esc(state.profile.name[0])}</div><div class="profile-meta"><strong>${esc(state.profile.name)}</strong><span>Approved student</span></div></div><button class="logout-button" data-logout>${icon("logout")}<span>Log out</span></button><div class="connection"><span class="status-dot ${navigator.onLine?"":"offline"}"></span><span>${navigator.onLine?"Online":"Connection required"}</span></div></div></aside>
+  app.innerHTML = `<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark"><img class="brand-logo" src="/assets/tsekap-logo-transparent.png" alt=""></div><div class="brand-copy"><strong>Tsek<b>AP</b></strong><span>Awareness & Prevention</span></div></div><nav class="nav-list">${nav}</nav><div class="sidebar-footer"><div class="profile-chip"><div class="avatar">${esc(state.profile.name[0])}</div><div class="profile-meta"><strong>${esc(state.profile.name)}</strong><span>Approved student</span></div></div><button class="logout-button" data-logout>${icon("logout")}<span>Log out</span></button><div class="connection"><span class="status-dot ${navigator.onLine?"":"offline"}"></span><span>${navigator.onLine ? (state.queuedCheckins.length ? `Online · ${state.queuedCheckins.length} pending` : "Online") : `Offline${state.queuedCheckins.length ? ` · ${state.queuedCheckins.length} pending` : ""}`}</span></div></div></aside>
   <header class="mobile-bar"><div class="mobile-brand"><div class="brand-mark"><img class="brand-logo" src="/assets/tsekap-logo-transparent.png" alt=""></div><span>TsekAP</span></div><button class="menu-button" id="menu-button" aria-label="${state.menuOpen?"Close":"Open"} menu" aria-expanded="${state.menuOpen}" aria-controls="mobile-menu">${icon(state.menuOpen?"x":"menu")}</button></header>
   <div class="mobile-menu" id="mobile-menu" ${state.menuOpen?"":"hidden"}>${nav}<button class="logout-button" data-logout>${icon("logout")}<span>Log out</span></button></div>
   <main class="content" id="main-content"><div class="page">${studentRoute()}</div></main></div>`;
@@ -483,19 +541,19 @@ function studentRoute() {
 }
 
 function studentHome() {
-  const latest = state.offlineResult || state.checkins[0];
+  const latest = state.offlineResult || combinedCheckins()[0];
   if (!latest) return `<header class="page-header"><div><span class="eyebrow">Student dashboard</span><h1 class="page-title">Welcome, ${esc(firstName())}</h1><p class="page-subtitle">Your protected cloud profile is ready.</p></div></header><section class="card empty-state"><div class="empty-icon">${icon("plus","icon icon-lg")}</div><h2>Ready for your first check-in?</h2><p>Enter your measured height and weight to calculate an educational WHO BMI-for-age result.</p><button class="button primary" data-route="measurement">Start a check-in</button></section>`;
   const z = Number(latest.z);
   const marker = Math.max(0, Math.min(100, ((z + 3) / 6) * 100));
   const plan = wellnessPlanFor(latest.classification, state.profile.conditions);
   return `<header class="page-header"><div><span class="eyebrow">Student dashboard</span><h1 class="page-title">Welcome, ${esc(firstName())}</h1><p class="page-subtitle">Here is your latest protected health check-in.</p></div><button class="button primary" data-route="measurement">${icon("plus","icon icon-sm")} New check-in</button></header>
-  ${latest.offline ? `<div class="notice warning offline-banner">${icon("info","icon icon-sm")}<span>This result was calculated offline and was not saved to your cloud history.</span></div>` : ""}
+  ${queueStatusBanner()}${latest.offline && latest.syncStatus === "unsaved" ? `<div class="notice warning offline-banner">${icon("info","icon icon-sm")}<span>This result could not be stored on this device and will not sync automatically.</span></div>` : ""}
   <div class="dashboard-grid">
     <section class="card result-card" aria-labelledby="latest-result-title">
       <div class="result-top"><div><span class="metric-label" id="latest-result-title">BMI-for-age</span><div class="metric-value">${Number(latest.bmi).toFixed(1)}</div><span class="classification-pill ${tone(latest.classification)}">${esc(latest.classification)}</span></div><div class="result-explainer"><strong>Screening result</strong><p>Your z-score is <b>${signed(latest.z)}</b>. Use this result for awareness—not as a diagnosis.</p></div></div>
       <div class="range-wrap"><div class="range-meta"><span>WHO BMI-for-age z-score</span><strong>${signed(latest.z)}</strong></div><div class="range-track" aria-hidden="true"><span class="range-marker" style="left:${marker.toFixed(2)}%"></span></div><div class="range-labels" aria-hidden="true"><span>−3</span><span>−2</span><span>+1</span><span>+2</span><span>+3</span></div><div class="legend"><span><i class="swatch low"></i>Thinness</span><span><i class="swatch expected"></i>Expected range</span><span><i class="swatch elevated"></i>Overweight</span><span><i class="swatch high"></i>Obesity</span></div></div>
     </section>
-    <section class="card measurements" aria-labelledby="measurements-title"><span class="eyebrow">Latest check-in</span><h2 class="section-title" id="measurements-title">Your measurements</h2><div class="data-list"><div class="data-row">${icon("ruler","icon icon-sm")}<span>Height</span><strong>${Number(latest.height).toFixed(1)} cm</strong></div><div class="data-row">${icon("scale","icon icon-sm")}<span>Weight</span><strong>${Number(latest.weight).toFixed(1)} kg</strong></div><div class="data-row">${icon("calendar","icon icon-sm")}<span>Checked</span><strong>${formatDate(latest.date)}</strong></div></div><p class="micro-note">${icon(latest.offline?"info":"shield","icon icon-sm")} ${latest.offline?"Not saved":"Protected for up to 90 days"}</p></section>
+    <section class="card measurements" aria-labelledby="measurements-title"><span class="eyebrow">Latest check-in</span><h2 class="section-title" id="measurements-title">Your measurements</h2><div class="data-list"><div class="data-row">${icon("ruler","icon icon-sm")}<span>Height</span><strong>${Number(latest.height).toFixed(1)} cm</strong></div><div class="data-row">${icon("scale","icon icon-sm")}<span>Weight</span><strong>${Number(latest.weight).toFixed(1)} kg</strong></div><div class="data-row">${icon("calendar","icon icon-sm")}<span>Checked</span><strong>${formatDate(latest.date)}</strong></div></div><p class="micro-note">${icon(latest.offline?"clock":"shield","icon icon-sm")} ${latest.offline ? (latest.syncStatus === "failed" ? "Needs attention before sync" : latest.syncStatus === "unsaved" ? "Not saved" : "Pending secure cloud sync") : "Protected for up to 90 days"}</p></section>
     <section class="card recommend-card"><div class="recommend-heading"><div><span class="eyebrow">Guidance for your profile</span><h2 class="section-title">Movement and food that fit your result</h2><p>Safer matches appear first based on your BMI-for-age category and optional health conditions.</p></div><span class="personalized-badge">${icon("shield","icon icon-sm")} Personalized carefully</span></div><div class="recommend-sections">${recommendationSection("exercise", plan.exercise)}${recommendationSection("food", plan.food)}</div>${plan.cautions.length?`<div class="recommend-cautions">${icon("info","icon icon-sm")}<div><strong>Use extra care for your profile</strong>${plan.cautions.map((note)=>`<p>${esc(note)}</p>`).join("")}</div></div>`:""}<p class="recommend-disclaimer">These are educational examples, not a prescription. The WHO activity target is a gradual long-term goal, not a requirement to complete immediately. Stop activity for concerning symptoms and follow guidance from a qualified healthcare professional.</p></section>
   </div>`;
 }
@@ -559,11 +617,12 @@ function bindRecommendationPlayback(root = document) {
 }
 
 function measurementView() {
-  return `<div class="form-shell"><form class="card form-card" id="checkin-form"><span class="eyebrow">New check-in</span><h1>Enter your measurements</h1><p class="lead">Use height and weight measured with your school’s equipment.</p><div class="field-grid"><div class="field"><label for="height">Height (cm)</label><input class="input" id="height" name="height" type="number" min="100" max="220" step=".1" required></div><div class="field"><label for="weight">Weight (kg)</label><input class="input" id="weight" name="weight" type="number" min="25" max="200" step=".1" required></div></div><p class="field-error" id="checkin-error" hidden></p><div class="notice warning">${icon("info","icon icon-sm")}<span>${navigator.onLine?"BMI-for-age is a screening indicator. Saved check-ins are removed after 90 days.":"You are offline. TsekAP can calculate this result on your device, but it will not be saved."}</span></div><div class="field-actions"><button class="button ghost" type="button" data-route="home">Cancel</button><button class="button primary" type="submit">${navigator.onLine?"Calculate and save":"Calculate offline"}</button></div></form></div>`;
+  return `<div class="form-shell"><form class="card form-card" id="checkin-form"><span class="eyebrow">New check-in</span><h1>Enter your measurements</h1><p class="lead">Use height and weight measured with your school’s equipment.</p><div class="field-grid"><div class="field"><label for="height">Height (cm)</label><input class="input" id="height" name="height" type="number" min="100" max="220" step=".1" required></div><div class="field"><label for="weight">Weight (kg)</label><input class="input" id="weight" name="weight" type="number" min="25" max="200" step=".1" required></div></div><p class="field-error" id="checkin-error" hidden></p><div class="notice warning">${icon("info","icon icon-sm")}<span>${navigator.onLine?"BMI-for-age is a screening indicator. Saved check-ins are removed after 90 days.":"You are offline. This check-in will be encrypted on this device and synced automatically when connection returns."}</span></div><div class="field-actions"><button class="button ghost" type="button" data-route="home">Cancel</button><button class="button primary" type="submit">${navigator.onLine?"Calculate and save":"Save for sync"}</button></div></form></div>`;
 }
 
 function historyView() {
-  return `<header class="page-header"><div><span class="eyebrow">Monitoring history</span><h1 class="page-title">Your check-ins</h1><p class="page-subtitle">Cloud check-ins are automatically removed 90 days after measurement.</p></div></header>${state.checkins.length ? `${historyChart(state.checkins)}<div class="history-list">${state.checkins.map((record) => `<article class="card history-row"><div class="history-date"><strong>${formatDate(record.date,"short")}</strong></div><div><div class="history-bmi">${Number(record.bmi).toFixed(1)}</div><span class="classification-pill ${tone(record.classification)}">${esc(record.classification)}</span></div><div class="history-measure">Height<strong>${Number(record.height).toFixed(1)} cm</strong></div><div class="history-measure">Weight<strong>${Number(record.weight).toFixed(1)} kg</strong></div><div class="history-measure">WHO z-score<strong>${signed(record.z)}</strong></div></article>`).join("")}</div>` : '<section class="card empty-state"><h2>No history yet</h2><p>Your first check-in will appear here.</p></section>'}`;
+  const records = combinedCheckins();
+  return `<header class="page-header"><div><span class="eyebrow">Monitoring history</span><h1 class="page-title">Your check-ins</h1><p class="page-subtitle">Cloud check-ins are automatically removed 90 days after measurement.</p></div></header>${queueStatusBanner()}${records.length ? `${historyChart(records.filter((record)=>Number.isFinite(Number(record.bmi))))}<div class="history-list">${records.map((record) => `<article class="card history-row ${record.offline?"pending-row":""}"><div class="history-date"><strong>${formatDate(record.date,"short")}</strong>${record.offline?`<span class="status-badge ${record.syncStatus === "failed" ? "rejected" : "pending"}">${record.syncStatus === "failed" ? "Needs attention" : "Pending sync"}</span>`:""}</div><div><div class="history-bmi">${Number.isFinite(Number(record.bmi))?Number(record.bmi).toFixed(1):"—"}</div>${record.classification?`<span class="classification-pill ${tone(record.classification)}">${esc(record.classification)}</span>`:""}</div><div class="history-measure">Height<strong>${Number(record.height).toFixed(1)} cm</strong></div><div class="history-measure">Weight<strong>${Number(record.weight).toFixed(1)} kg</strong></div><div class="history-measure">WHO z-score<strong>${Number.isFinite(Number(record.z))?signed(record.z):"—"}</strong></div>${record.offline?`<div class="pending-actions"><button class="button mini secondary" data-retry-queued="${record.queueId}">Retry</button><button class="button mini ghost" data-discard-queued="${record.queueId}">Discard</button></div>`:""}</article>`).join("")}</div>` : '<section class="card empty-state"><h2>No history yet</h2><p>Your first check-in will appear here.</p></section>'}`;
 }
 
 function historyChart(records) {
@@ -585,12 +644,12 @@ function referenceLinks() {
 }
 
 function aboutView() {
-  return `<header class="page-header"><div><span class="eyebrow">About TsekAP</span><h1 class="page-title">Awareness and prevention, designed for students</h1><p class="page-subtitle">A school health-monitoring experience grounded in education, privacy, and responsible guidance.</p></div></header><div class="about-hero"><article class="card about-copy"><h2>What TsekAP means</h2><p><strong>TsekAP</strong> brings together the idea of a health “check” with awareness and prevention. It supports students ages 15–18 in understanding BMI-for-age results without presenting them as a diagnosis.</p><p>The system combines careful measurement, WHO reference data, short-term trend monitoring, and condition-aware educational recommendations.</p></article><aside class="card about-values"><div class="value-row"><span class="value-icon">${icon("shield")}</span><div><strong>Privacy by design</strong><span>Approved access, protected profiles, and 90-day check-in retention.</span></div></div><div class="value-row"><span class="value-icon">${icon("book")}</span><div><strong>Education first</strong><span>Clear explanations and official reference links.</span></div></div><div class="value-row"><span class="value-icon">${icon("activity")}</span><div><strong>Useful offline</strong><span>Private on-device calculation when the network is unavailable.</span></div></div></aside></div><section class="card article-card about-references"><h2>Evidence and references</h2><p>TsekAP’s BMI-for-age calculation uses the WHO 2007 reference for ages 5–19. Health guidance is educational and links back to official sources.</p><div class="reference-list">${referenceLinks()}</div></section>`;
+  return `<header class="page-header"><div><span class="eyebrow">About TsekAP</span><h1 class="page-title">Awareness and prevention, designed for students</h1><p class="page-subtitle">A school health-monitoring experience grounded in education, privacy, and responsible guidance.</p></div></header><div class="about-hero"><article class="card about-copy"><h2>What TsekAP means</h2><p><strong>TsekAP</strong> brings together the idea of a health “check” with awareness and prevention. It supports students ages 15–18 in understanding BMI-for-age results without presenting them as a diagnosis.</p><p>The system combines careful measurement, WHO reference data, short-term trend monitoring, and condition-aware educational recommendations.</p></article><aside class="card about-values"><div class="value-row"><span class="value-icon">${icon("shield")}</span><div><strong>Privacy by design</strong><span>Approved access, protected profiles, and 90-day check-in retention.</span></div></div><div class="value-row"><span class="value-icon">${icon("book")}</span><div><strong>Education first</strong><span>Clear explanations and official reference links.</span></div></div><div class="value-row"><span class="value-icon">${icon("activity")}</span><div><strong>Useful offline</strong><span>Encrypted check-ins remain on this device and sync for the same account after reconnection.</span></div></div></aside></div><section class="card article-card about-references"><h2>Evidence and references</h2><p>TsekAP’s BMI-for-age calculation uses the WHO 2007 reference for ages 5–19. Health guidance is educational and links back to official sources.</p><div class="reference-list">${referenceLinks()}</div></section>`;
 }
 
 function accountView() {
   const legacy = Boolean(localStorage.getItem(LEGACY_ACCOUNT_KEY)) && !state.profile.migrationCompletedAt;
-  return `<header class="page-header"><div><span class="eyebrow">Account</span><h1 class="page-title">Profile and privacy</h1><p class="page-subtitle">Your cloud profile is protected by Firebase Authentication.</p></div></header><section class="card settings-card"><div class="settings-row"><div><strong>Full name</strong><p>${esc(state.profile.name)}</p></div></div><div class="settings-row"><div><strong>Learner Reference Number</strong><p>${esc(state.profile.lrn)}</p></div></div><div class="settings-row"><div><strong>Check-in retention</strong><p>Each cloud health check-in is automatically removed 90 days after its measurement date.</p></div><span class="status-badge approved">90 days</span></div><div class="settings-row"><div><strong>Offline calculation</strong><p>Offline results stay in memory only and are not uploaded or saved to this device.</p></div></div>${legacy?`<div class="settings-row"><div><strong>Import old device records</strong><p>An encrypted local profile was found on this device.</p></div><button class="button secondary" id="import-local">Import</button></div>`:""}<div class="settings-row"><div><strong>Delete account</strong><p>Permanently remove this profile and all current check-ins.</p></div><button class="button danger" id="delete-account">${icon("trash","icon icon-sm")} Delete</button></div></section>`;
+  return `<header class="page-header"><div><span class="eyebrow">Account</span><h1 class="page-title">Profile and privacy</h1><p class="page-subtitle">Your cloud profile is protected by Firebase Authentication.</p></div></header><section class="card settings-card"><div class="settings-row"><div><strong>Full name</strong><p>${esc(state.profile.name)}</p></div></div><div class="settings-row"><div><strong>Learner Reference Number</strong><p>${esc(state.profile.lrn)}</p></div></div><div class="settings-row"><div><strong>Check-in retention</strong><p>Cloud and pending offline check-ins are removed 90 days after measurement.</p></div><span class="status-badge approved">90 days</span></div><div class="settings-row"><div><strong>Offline check-ins</strong><p>Pending measurements are encrypted on this device and synchronize only for this Firebase account.</p></div><span class="status-badge ${state.queuedCheckins.length?"pending":"approved"}">${state.queuedCheckins.length} pending</span></div>${legacy?`<div class="settings-row"><div><strong>Import old device records</strong><p>An encrypted local profile was found on this device.</p></div><button class="button secondary" id="import-local">Import</button></div>`:""}<div class="settings-row"><div><strong>Delete account</strong><p>Permanently remove this profile, cloud check-ins, and pending records on this device.</p></div><button class="button danger" id="delete-account">${icon("trash","icon icon-sm")} Delete</button></div></section>`;
 }
 
 function bindStudentRoute() {
@@ -611,9 +670,89 @@ function bindStudentRoute() {
     if (!reducedMotion.matches && document.startViewTransition) document.startViewTransition(update);
     else update();
   }));
-  document.querySelector("#checkin-form")?.addEventListener("submit", async (event) => { event.preventDefault(); const data=new FormData(event.currentTarget); const button=event.submitter; button.disabled=true; try { if (!navigator.onLine) { const measuredAt = new Date(); const result = calculateBmi(data.get("height"),data.get("weight"),completedAgeMonths(state.profile.dob,measuredAt),state.profile.sex); state.offlineResult={date:measuredAt.toISOString(),height:Number(data.get("height")),weight:Number(data.get("weight")),...result,offline:true}; state.route="home"; render(); showToast("Calculated offline. This result was not saved.","success"); return; } await api("checkins",{method:"POST",body:JSON.stringify({height:data.get("height"),weight:data.get("weight")})}); state.offlineResult=null; showToast("Check-in calculated and saved for up to 90 days.","success"); state.route="home"; await loadSession(); } catch(error){ fieldError("checkin-error",error.message); button.disabled=false; } });
+  document.querySelector("#checkin-form")?.addEventListener("submit", submitCheckin);
+  document.querySelectorAll("[data-sync-now]").forEach((button) => button.addEventListener("click", () => syncQueuedCheckins({ retryFailed: true })));
+  document.querySelectorAll("[data-retry-queued]").forEach((button) => button.addEventListener("click", async () => { await updateQueuedCheckin(button.dataset.retryQueued,{status:"pending",lastError:null}); await syncQueuedCheckins(); }));
+  document.querySelectorAll("[data-discard-queued]").forEach((button) => button.addEventListener("click", async () => { if (!confirm("Discard this pending check-in from this device?")) return; await removeQueuedCheckin(button.dataset.discardQueued); await hydrateQueuedCheckins(); render(); showToast("Pending check-in discarded.","success"); }));
   document.querySelector("#import-local")?.addEventListener("click", importLegacy);
-  document.querySelector("#delete-account")?.addEventListener("click", async () => { if (!confirm("Permanently delete your TsekAP account and every saved check-in?")) return; try { await api("account",{method:"DELETE"}); prepareLandingSplash(); await signOut(auth); localStorage.removeItem(LEGACY_ACCOUNT_KEY); showToast("Account deleted.","success"); } catch(error){ showToast(error.message,"warning"); } });
+  document.querySelector("#delete-account")?.addEventListener("click", async () => { if (!confirm("Permanently delete your TsekAP account and every saved check-in?")) return; try { const uid=auth.currentUser.uid; await api("account",{method:"DELETE"}); await clearUserOfflineData(uid); prepareLandingSplash(); await signOut(auth); localStorage.removeItem(LEGACY_ACCOUNT_KEY); showToast("Account deleted.","success"); } catch(error){ showToast(error.message,"warning"); } });
+}
+
+async function submitCheckin(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const button = event.submitter;
+  button.disabled = true;
+  const measuredAt = new Date();
+  const payload = { height:Number(data.get("height")), weight:Number(data.get("weight")), date:measuredAt.toISOString(), clientRequestId:crypto.randomUUID() };
+  try {
+    const result = calculateBmi(payload.height,payload.weight,completedAgeMonths(state.profile.dob,measuredAt),state.profile.sex);
+    if (!navigator.onLine) return savePendingCheckin(payload,result);
+    try {
+      await api("checkins",{method:"POST",body:JSON.stringify(payload)});
+      state.offlineResult=null;
+      showToast("Check-in calculated and saved for up to 90 days.","success");
+      state.route="home";
+      await loadSession();
+    } catch (error) {
+      if (!error.transient) throw error;
+      await savePendingCheckin(payload,result);
+    }
+  } catch(error) {
+    fieldError("checkin-error",error.message);
+    button.disabled=false;
+  }
+}
+
+async function savePendingCheckin(payload, result) {
+  try {
+    await enqueueCheckin(auth.currentUser.uid,payload,payload.clientRequestId);
+    await hydrateQueuedCheckins();
+    state.offlineResult=null;
+    state.route="home";
+    render();
+    showToast("Saved securely on this device. It will sync automatically.","success");
+  } catch (error) {
+    state.offlineResult={date:payload.date,height:payload.height,weight:payload.weight,...result,offline:true,syncStatus:"unsaved"};
+    state.route="home";
+    render();
+    showToast("Calculated, but this browser could not store it for sync.","warning");
+  }
+}
+
+async function syncQueuedCheckins({ silent = false, retryFailed = false } = {}) {
+  if (syncPromise || !navigator.onLine || !auth.currentUser || state.profile?.status !== "approved") return syncPromise;
+  const run = async () => {
+    state.syncState="syncing"; state.syncError=null; render();
+    let synced=0;
+    const records=await listQueuedCheckins(auth.currentUser.uid);
+    for (const record of records) {
+      if (!record.payload || (record.status === "failed" && !retryFailed)) continue;
+      await updateQueuedCheckin(record.queueId,{status:"syncing",attempts:(record.attempts||0)+1,lastError:null});
+      try {
+        await api("checkins",{method:"POST",body:JSON.stringify({...record.payload,clientRequestId:record.queueId})});
+        await removeQueuedCheckin(record.queueId);
+        synced++;
+      } catch (error) {
+        await updateQueuedCheckin(record.queueId,{status:error.transient?"pending":"failed",lastError:error.message});
+        if (error.transient) { state.syncError=error.message; break; }
+      }
+    }
+    await hydrateQueuedCheckins();
+    state.syncState=state.queuedCheckins.some((item)=>item.syncStatus==="failed")?"failed":"idle";
+    if (synced) {
+      try {
+        const data=await api("me");
+        state.profile=data.user; state.checkins=data.checkins||[]; state.offlineProfile=false;
+        await cacheApprovedProfile(state.profile);
+      } catch {}
+      if (!silent) showToast(`${synced} pending check-in${synced===1?"":"s"} synced.`,"success");
+    }
+    render();
+  };
+  const start = () => run();
+  syncPromise = (navigator.locks?.request ? navigator.locks.request("tsekap-checkin-sync", start) : start()).finally(() => { syncPromise=null; });
+  return syncPromise;
 }
 
 async function importLegacy() {
@@ -722,8 +861,15 @@ function tone(classification){return classification==="Within expected range"?""
 function debounce(fn,delay){let timer;return(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),delay);};}
 function downloadBlob(content,name,type){const url=URL.createObjectURL(new Blob([content],{type}));const link=document.createElement("a");link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 
-window.addEventListener("online",()=>showToast("Connection restored.","success"));
-window.addEventListener("offline",()=>showToast("Health records require an internet connection.","warning"));
+window.addEventListener("online",async()=>{
+  showToast("Connection restored. Checking pending records…","success");
+  render();
+  await syncQueuedCheckins();
+});
+window.addEventListener("offline",()=>{
+  showToast("You’re offline. New check-ins can be saved securely for later sync.","warning");
+  render();
+});
 if ("serviceWorker" in navigator) window.addEventListener("load", () => {
   if (import.meta.env.PROD) navigator.serviceWorker.register("/sw.js").catch(() => {});
   else navigator.serviceWorker.getRegistrations().then((registrations) => registrations.forEach((registration) => registration.unregister()));
